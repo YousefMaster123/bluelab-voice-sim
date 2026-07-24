@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BlueLab — Voice Agent Sim</title>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+<style>
+  :root {
+    --bg:#0e1116; --panel:#161b22; --border:#2a323d; --text:#e6edf3; --muted:#8b949e;
+    --accent:#2f81f7; --good:#3fb950; --bad:#f85149; --warn:#d29922;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--text); font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    padding:24px; max-width:1100px; margin-inline:auto;
+  }
+  h1 { font-size:19px; margin:0 0 2px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:900px){ .grid { grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px; }
+  .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 12px; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+  select, button {
+    font:inherit; border-radius:8px; border:1px solid var(--border); background:#0d1117; color:var(--text);
+    padding:10px 12px;
+  }
+  select { width:100%; }
+  button { cursor:pointer; font-weight:600; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger  { background:var(--bad); border-color:var(--bad); color:#fff; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .row { display:flex; gap:10px; align-items:center; margin-top:14px; }
+  .meta { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .chip { font-size:11px; color:var(--muted); border:1px solid var(--border); border-radius:99px; padding:3px 9px; }
+  .chip b { color:var(--text); font-weight:600; }
+  pre {
+    background:#0d1117; border:1px solid var(--border); border-radius:8px; padding:12px; margin:0;
+    white-space:pre-wrap; word-wrap:break-word; font:12.5px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;
+    max-height:440px; overflow:auto;
+  }
+  #status { font-size:13px; color:var(--muted); }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:99px; background:var(--muted); margin-right:7px; vertical-align:middle; }
+  .dot.live { background:var(--good); box-shadow:0 0 0 3px rgba(63,185,80,.18); }
+  .dot.err  { background:var(--bad); }
+  .dot.wait { background:var(--warn); }
+  #transcript { max-height:300px; overflow:auto; display:flex; flex-direction:column; gap:8px; }
+  .line { border-inline-start:3px solid var(--border); padding:2px 0 2px 10px; }
+  .line .who { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .line.prospect { border-color:var(--accent); }
+  .line .txt { unicode-bidi:plaintext; }
+  .empty { color:var(--muted); font-size:13px; font-style:italic; }
+  .err { color:var(--bad); font-size:13px; margin-top:10px; unicode-bidi:plaintext; }
+</style>
+</head>
+<body>
+
+<h1>BlueLab — Voice Agent Sim</h1>
+<div class="sub">Pick a market, read the exact prompt that will be sent, then call the deployed agent.</div>
+
+<div class="grid">
+  <!-- ── left: controls ─────────────────────────────────────────────── -->
+  <div>
+    <div class="panel">
+      <h2>1 · Market</h2>
+      <label for="lang">Language / dialect — this is the bundle's <code>language</code> field</label>
+      <select id="lang"></select>
+      <div class="meta" id="meta"></div>
+
+      <div class="row">
+        <button id="start" class="primary">▶ Start call</button>
+        <button id="end" class="danger" disabled>■ End call</button>
+        <span id="status"><span class="dot"></span>idle</span>
+      </div>
+      <div class="err" id="err"></div>
+    </div>
+
+    <div class="panel" style="margin-top:16px;">
+      <h2>3 · Live transcript</h2>
+      <div id="transcript"><div class="empty">Nothing yet — start a call.</div></div>
+    </div>
+  </div>
+
+  <!-- ── right: prompt ──────────────────────────────────────────────── -->
+  <div class="panel">
+    <h2>2 · Exact system prompt <span id="chars" style="text-transform:none;letter-spacing:0"></span></h2>
+    <pre id="prompt" dir="auto">loading…</pre>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let room = null, poll = null, attemptId = null, cursor = 0;
+
+// Shared key for a deployed (public) sim — taken from this page's own ?k=… and echoed on every
+// API call. Empty locally, where SIM_ACCESS_TOKEN is unset and the server lets everything through.
+const KEY = new URLSearchParams(location.search).get("k") || "";
+const api = (path) => KEY ? path + (path.includes("?") ? "&" : "?") + "k=" + encodeURIComponent(KEY) : path;
+
+function setStatus(text, cls = "") {
+  $("status").innerHTML = `<span class="dot ${cls}"></span>${text}`;
+}
+function setErr(msg) { $("err").textContent = msg || ""; }
+
+// ── load markets ──────────────────────────────────────────────────────
+async function loadMarkets() {
+  const markets = await (await fetch(api("/sim/markets"))).json();
+  $("lang").innerHTML = markets
+    .map((m) => `<option value="${m.code}">${m.label}  (${m.code})</option>`)
+    .join("");
+  await loadPrompt();
+}
+
+// ── prompt preview: the REAL build_system_prompt output ───────────────
+async function loadPrompt() {
+  const code = $("lang").value;
+  $("prompt").textContent = "loading…";
+  $("meta").innerHTML = "";
+  $("chars").textContent = "";
+  try {
+    const r = await fetch(api(`/sim/prompt-preview?language=${encodeURIComponent(code)}`));
+    const d = await r.json();
+    if (d.error) { $("prompt").textContent = ""; setErr(d.error); return; }
+    setErr("");
+    $("prompt").textContent = d.prompt;
+    $("chars").textContent = `— ${d.prompt_chars.toLocaleString()} chars`;
+    $("meta").innerHTML = [
+      ["language", d.language], ["voice", d.voice],
+      ["stt", d.stt_language], ["llm", d.llm_model],
+    ].map(([k, v]) => `<span class="chip">${k} <b>${v}</b></span>`).join("");
+  } catch (e) {
+    $("prompt").textContent = "";
+    setErr(String(e));
+  }
+}
+
+// ── transcript polling ────────────────────────────────────────────────
+function addLine(l) {
+  if ($("transcript").querySelector(".empty")) $("transcript").innerHTML = "";
+  const who = (l.speaker || "").toLowerCase();
+  const div = document.createElement("div");
+  div.className = "line" + (who.includes("prospect") || who.includes("agent") ? " prospect" : "");
+  div.innerHTML = `<div class="who"></div><div class="txt" dir="auto"></div>`;
+  div.querySelector(".who").textContent = l.speaker;
+  div.querySelector(".txt").textContent = l.text;
+  $("transcript").appendChild(div);
+  $("transcript").scrollTop = $("transcript").scrollHeight;
+}
+
+function startPolling() {
+  stopPolling();
+  poll = setInterval(async () => {
+    if (!attemptId) return;
+    try {
+      const d = await (await fetch(api(`/sim/events?attempt_id=${attemptId}&after=${cursor}`))).json();
+      if (d.lines) { d.lines.forEach(addLine); cursor = d.next; }
+    } catch (_) {}
+  }, 1000);
+}
+function stopPolling() { if (poll) { clearInterval(poll); poll = null; } }
+
+// ── call ──────────────────────────────────────────────────────────────
+async function startCall() {
+  setErr("");
+  $("start").disabled = true;
+  setStatus("connecting…", "wait");
+  $("transcript").innerHTML = '<div class="empty">Waiting for the agent…</div>';
+  cursor = 0;
+
+  try {
+    const res = await fetch(api("/sim/start"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language: $("lang").value }),
+    });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    attemptId = d.attempt_id;
+
+    room = new LivekitClient.Room({ adaptiveStream: true, dynacast: true });
+
+    room.on(LivekitClient.RoomEvent.TrackSubscribed, (track) => {
+      if (track.kind === "audio") {
+        const el = track.attach();
+        el.autoplay = true;
+        document.body.appendChild(el);
+        setStatus(`live · ${d.language} · ${d.room}`, "live");
+      }
+    });
+    room.on(LivekitClient.RoomEvent.ParticipantConnected, (p) => {
+      setStatus(`agent joined (${p.identity}) — speak now`, "live");
+    });
+    room.on(LivekitClient.RoomEvent.Disconnected, () => endCall(true));
+
+    await room.connect(d.url, d.token);
+    await room.localParticipant.setMicrophoneEnabled(true);
+    setStatus("connected — waiting for the agent…", "wait");
+    $("end").disabled = false;
+    startPolling();
+  } catch (e) {
+    setErr(String(e && e.message ? e.message : e));
+    setStatus("failed", "err");
+    $("start").disabled = false;
+    attemptId = null;
+  }
+}
+
+async function endCall(remote = false) {
+  stopPolling();
+  if (room && !remote) { try { await room.disconnect(); } catch (_) {} }
+  room = null;
+  $("start").disabled = false;
+  $("end").disabled = true;
+  setStatus("idle");
+}
+
+$("lang").addEventListener("change", loadPrompt);
+$("start").addEventListener("click", startCall);
+$("end").addEventListener("click", () => endCall());
+loadMarkets();
+</script>
+</body>
+</html>

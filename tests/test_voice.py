@@ -1,0 +1,101 @@
+"""In-process tests for the voice agent (needs the livekit-agents stack; no network).
+
+Covers: prompt assembly stays knowledge-bounded + byte-stable Section 1, the STT/TTS builders
+construct the right plugins, HMAC signing round-trips (new X-Agent-Signature scheme), and settings
+carry no DB credentials. Requires the livekit deps installed; the contract-only checks that do NOT
+need livekit live in test_contract.py.
+"""
+
+from __future__ import annotations
+
+from livekit.agents import inference
+from livekit.plugins import xai
+
+from bluelab_runtime_bundle import PersonaSections, RuntimeBundle, assert_runtime_safe
+from bluelab_voice.agent import (
+    GUARDRAILS_VERSION,
+    SECTION_1_GUARDRAILS,
+    build_system_prompt,
+)
+from bluelab_voice.config import Settings
+from bluelab_voice.signing import SIGNATURE_HEADER, sign_body, verify_signature
+from bluelab_voice.stt import build_stt
+from bluelab_voice.tts import build_tts
+
+
+def _bundle() -> RuntimeBundle:
+    return RuntimeBundle(
+        attempt_id="att_smoke",
+        org_id="org_smoke",
+        livekit_room="attempt_att_smoke",
+        call_type="discovery",
+        lead_type="cold_outreach",
+        language="ar",
+        wrapper_type="hiring",
+        voice="leo",
+        persona=PersonaSections(
+            who_you_are="You are Tarek, a blunt SME owner who distrusts cold callers.",
+            your_world="You run a 20-person trading company; you self-insure today.",
+            where_you_are_right_now="Annoyed at the interruption, ready to hang up.",
+            call_context="Cold outreach; you don't know this salesperson at all.",
+        ),
+        prompt_versions={"voice_guardrails": GUARDRAILS_VERSION},
+        model_versions={"voice_agent": "claude-haiku-4-5"},
+    )
+
+
+def test_bundle_passes_guard() -> None:
+    assert assert_runtime_safe(_bundle()) is not None
+
+
+def test_system_prompt_contains_guardrails_and_sections() -> None:
+    prompt = build_system_prompt(_bundle())
+    assert SECTION_1_GUARDRAILS in prompt
+    assert prompt.startswith(SECTION_1_GUARDRAILS)  # guardrails first, for prompt caching
+    assert "WHO YOU ARE" in prompt and "Tarek" in prompt
+    assert "CALL CONTEXT" in prompt
+    lowered = prompt.lower()
+    for forbidden in ("rubric", "answer_key", "scorecard", "success_criteria"):
+        assert forbidden not in lowered
+
+
+def test_section_1_is_byte_stable() -> None:
+    for token in ("{", "}", "%s", "format("):
+        assert token not in SECTION_1_GUARDRAILS
+
+
+def test_hmac_sign_and_verify_roundtrip() -> None:
+    # New scheme: single X-Agent-Signature over the raw body, no timestamp.
+    secret = "test-secret"
+    body = b'{"attempt_id":"att_smoke","sequence_index":0}'
+    headers = sign_body(secret, body)
+    assert set(headers) == {SIGNATURE_HEADER}
+    assert verify_signature(secret, body, headers[SIGNATURE_HEADER])
+    assert not verify_signature(secret, b"tampered", headers[SIGNATURE_HEADER])
+
+
+def test_settings_have_no_supabase_fields() -> None:
+    fields = set(Settings.model_fields)
+    for forbidden in ("supabase_url", "supabase_anon_key", "supabase_service_role_key"):
+        assert forbidden not in fields
+
+
+def test_stt_via_inference_and_tts_via_direct_xai() -> None:
+    # STT runs through LiveKit Inference; TTS uses the DIRECT xAI plugin (needs XAI_API_KEY) — the
+    # network call is deferred to stream open, so a dummy key is enough to construct.
+    settings = Settings(xai_api_key="test-xai-key")
+    assert isinstance(build_stt(_bundle(), settings), inference.STT)
+    assert isinstance(build_tts(_bundle(), settings), xai.TTS)
+
+
+def test_settings_carry_the_direct_provider_keys() -> None:
+    # The direct paths (Anthropic LLM + xAI TTS) each need their own key; STT is Inference (no key).
+    fields = set(Settings.model_fields)
+    assert "anthropic_api_key" in fields
+    assert "xai_api_key" in fields
+
+
+def test_stt_tts_models_are_config_driven() -> None:
+    swapped = Settings(stt_model="deepgram/nova-3", xai_api_key="k")
+    assert swapped.stt_model == "deepgram/nova-3"
+    assert isinstance(build_stt(_bundle(), swapped), inference.STT)

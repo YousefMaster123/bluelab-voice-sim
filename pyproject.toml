@@ -1,0 +1,47 @@
+[project]
+name = "bluelab-voice"
+version = "0.1.0"
+description = "BlueLab Voice Prospect Agent — latency-isolated LiveKit Agents worker (REPO-4)"
+requires-python = ">=3.12"
+dependencies = [
+  # LiveKit Agents worker. STT + TTS run through LiveKit Inference (built into core); the
+  # direct-Claude LLM needs the [anthropic] plugin, [xai] provides the direct Grok TTS, and
+  # [turn-detector] the MultilingualModel semantic end-of-turn detector for Arabic/mixed.
+  # [speechmatics] = the DIRECT plugin for the raw bilingual `ar_en` path (pulls speechmatics-voice
+  # + speechmatics-rt); [silero] = the VAD stt.py imports on the main thread for that path. Both are
+  # imported directly in src/ and MUST be declared or a clean/deploy build silently loses them.
+  "livekit-agents[turn-detector,anthropic,xai,speechmatics,silero]~=1.5",
+  # Direct Anthropic SDK (the plugin wraps it; also used for cache-control message blocks).
+  "anthropic>=0.40",
+  # Outbound calls to the api (bundle fetch + HMAC callbacks) — no Supabase client (REPO-4).
+  "httpx>=0.27",
+  "tenacity>=9.0",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  "structlog>=24.4",
+  # NOTE: the runtime-safe bundle contract + knowledge-boundary guard are VENDORED into
+  # src/bluelab_runtime_bundle (this repo is the canonical home per the rebuild manifest; the
+  # backend mirrors the same schema). No external dependency.
+]
+
+[dependency-groups]
+dev = ["ruff>=0.7", "pytest>=8.3", "pytest-asyncio>=0.24"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["UP046", "UP047", "E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bluelab_voice", "src/bluelab_runtime_bundle"]
