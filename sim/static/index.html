@@ -199,6 +199,10 @@ async function startCall() {
     $("end").disabled = false;
     startPolling();
   } catch (e) {
+    // If connect() succeeded but a later step threw (e.g. mic permission denied), the room is
+    // live with the agent dispatched — disconnect it or it leaks, holding an STT concurrent
+    // session until the room times out.
+    if (room) { try { await room.disconnect(); } catch (_) {} room = null; }
     setErr(String(e && e.message ? e.message : e));
     setStatus("failed", "err");
     $("start").disabled = false;
