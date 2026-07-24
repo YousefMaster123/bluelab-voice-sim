@@ -204,11 +204,11 @@ _FRENCH = PersonaSections(
 
 # Order here is the order of the dropdown.
 MARKETS: list[Market] = [
-    Market("ar-QA", "Qatari — قطري", "ar", "eve", _QATARI),
-    Market("ar-AE", "Emirati — إماراتي", "ar", "eve", _EMIRATI),
-    Market("ar-SA", "Saudi — سعودي", "ar", "eve", _SAUDI),
-    Market("ar-KW", "Kuwaiti — كويتي", "ar", "eve", _KUWAITI),
-    Market("ar-EG", "Egyptian — مصري", "ar", "eve", _EGYPTIAN),
+    Market("ar-QA", "Qatari — قطري", "ar_en", "eve", _QATARI),
+    Market("ar-AE", "Emirati — إماراتي", "ar_en", "eve", _EMIRATI),
+    Market("ar-SA", "Saudi — سعودي", "ar_en", "eve", _SAUDI),
+    Market("ar-KW", "Kuwaiti — كويتي", "ar_en", "eve", _KUWAITI),
+    Market("ar-EG", "Egyptian — مصري", "ar_en", "eve", _EGYPTIAN),
     Market("en", "English", "en", "eve", _ENGLISH),
     Market("fr", "French — français", "fr", "eve", _FRENCH),
 ]

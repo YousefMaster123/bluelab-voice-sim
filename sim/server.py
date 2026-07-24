@@ -133,8 +133,10 @@ def build_bundle(attempt_id: str, language: str | None = None) -> RuntimeBundle:
         language = (rec or {}).get("language")
     market = get_market(language)
 
-    # Speechmatics: `ar` is the global Arabic model (handles all the dialects + code-switching);
-    # `en`/`fr` for the non-Arabic markets. SPEECHMATICS_API_KEY in .env selects the direct plugin.
+    # Speechmatics: `ar_en` is the bilingual Arabic-English pack (all dialects + true intra-sentence
+    # code-switching) — requires the DIRECT plugin path (SPEECHMATICS_API_KEY set), which sends the
+    # code verbatim; LiveKit Inference would normalize it to ar-EN = Arabic-only. `en`/`fr` for the
+    # non-Arabic markets.
     runtime_config = RuntimeConfig(
         stt_provider="speechmatics",
         stt_language=market.stt_language,

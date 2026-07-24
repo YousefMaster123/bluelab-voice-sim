@@ -29,18 +29,17 @@ _log = get_logger("bluelab.voice.tts")
 _xai_tts.SAMPLE_RATE = 44100
 
 
-# xAI TTS `language` hint per bundle language. `ar-EG` is the verified-good Egyptian voice, so the
-# Egyptian/legacy-Arabic path keeps it exactly as before. The other dialects are sent as `auto` (xAI
-# detects Arabic/French from the text itself) because their region codes are NOT verified against
-# xAI's accepted list, and an unknown code fails the whole call rather than degrading. The dialect
-# itself comes from the system prompt, not this hint — this only nudges pronunciation. If a region
-# code is ever confirmed working, putting it here is the only edit needed.
+# xAI TTS `language` hint per bundle language. xAI's accepted Arabic codes are `ar-EG`, `ar-SA`
+# and `ar-AE` (verified against xAI's language list), so each market maps to its own code or the
+# nearest accent: Qatari → `ar-AE` (lower-Gulf coastal dialect, closest to Emirati) and
+# Kuwaiti → `ar-SA` (northern-Gulf dialect with Najdi roots, closest to Saudi). The dialect
+# vocabulary itself comes from the system prompt, not this hint — this only nudges pronunciation.
 _TTS_LANGUAGES: dict[str, str] = {
     "ar-eg": "ar-EG",
-    "ar-sa": "auto",
-    "ar-ae": "auto",
-    "ar-qa": "auto",
-    "ar-kw": "auto",
+    "ar-sa": "ar-SA",
+    "ar-ae": "ar-AE",
+    "ar-qa": "ar-AE",
+    "ar-kw": "ar-SA",
     "fr": "auto",
     "en": "auto",
 }
