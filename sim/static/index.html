@@ -180,22 +180,28 @@ async function startCall() {
 
     room = new LivekitClient.Room({ adaptiveStream: true, dynacast: true });
 
+    // The agent can join and publish DURING room.connect()/mic setup (it dispatches off the
+    // join token and is fast) — in that case the handlers below fire first and the
+    // "waiting for the agent" status set after connect would overwrite the live one.
+    let agentSeen = false;
     room.on(LivekitClient.RoomEvent.TrackSubscribed, (track) => {
       if (track.kind === "audio") {
         const el = track.attach();
         el.autoplay = true;
         document.body.appendChild(el);
+        agentSeen = true;
         setStatus(`live · ${d.language} · ${d.room}`, "live");
       }
     });
     room.on(LivekitClient.RoomEvent.ParticipantConnected, (p) => {
+      agentSeen = true;
       setStatus(`agent joined (${p.identity}) — speak now`, "live");
     });
     room.on(LivekitClient.RoomEvent.Disconnected, () => endCall(true));
 
     await room.connect(d.url, d.token);
     await room.localParticipant.setMicrophoneEnabled(true);
-    setStatus("connected — waiting for the agent…", "wait");
+    if (!agentSeen) setStatus("connected — waiting for the agent…", "wait");
     $("end").disabled = false;
     startPolling();
   } catch (e) {
