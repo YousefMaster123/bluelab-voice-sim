@@ -27,6 +27,7 @@ LeadType = Literal["inbound_quote", "referral", "cold_outreach"]
 WrapperType = Literal["training", "hiring"]
 # xAI Grok voices the spec pins (07 §1): leo (male) / eve (female).
 Voice = Literal["leo", "eve"]
+Gender = Literal["female", "male"]
 
 
 class PersonaSections(BaseModel):
@@ -130,6 +131,12 @@ class RuntimeBundle(BaseModel):
     # The persona (verbatim sections) + speech identity.
     persona: PersonaSections
     voice: Voice
+    # Explicit genders (optional). When BOTH are present the worker renders an explicit
+    # <gender> prompt section from them; when absent it falls back to generic wording that
+    # points at the persona sections. persona_gender = the human the agent plays;
+    # caller_gender = the person on the line (the rep).
+    persona_gender: Gender | None = None
+    caller_gender: Gender | None = None
 
     # Resolved runtime config + the versions recorded on the snapshot (AIR-10) so the call
     # reproduces. These are *version strings*, never prompt bodies or answer keys.

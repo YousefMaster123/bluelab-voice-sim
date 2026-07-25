@@ -34,6 +34,8 @@ class Market(NamedTuple):
     stt_language: str  # what Speechmatics is asked for
     voice: str  # xAI Grok voice: leo (male) / eve (female)
     persona: PersonaSections
+    persona_gender: str = "female"  # the human the agent plays (all current personas are women)
+    caller_gender: str = "male"  # the rep on the line (every WHERE YOU ARE says a man)
 
 
 # ── Egyptian (ar-EG) ────────────────────────────────────────────────────────────────────────────
