@@ -106,6 +106,13 @@ if _speechmatics is not None:
             config.end_of_utterance_mode = _EOUMode.FIXED
             config.end_of_utterance_silence_trigger = 0.8
             config.end_of_utterance_max_delay = 1.6
+            # REQUIRED with FIXED: the EXTERNAL preset sets use_forced_eou=True, and the client
+            # rejects FIXED+forced-EOU without engine VAD ("FIXED mode cannot be used in
+            # conjunction with forced end of utterance without VAD enabled"). With forced EOU off,
+            # FIXED sends the engine a ConversationConfig carrying the silence trigger (the
+            # behavior we want) and the plugin's VAD-driven finalize() degrades to a harmless
+            # local segment flush.
+            config.end_of_turn_config.use_forced_eou = False
             return config
 
 
