@@ -49,9 +49,11 @@ try:
     # The non-deprecated way to pin the acoustic model on the underlying speechmatics-rt config.
     # `OperatingPoint` is deprecated there in favor of `Model` (same "enhanced"/"standard" values).
     from speechmatics.rt import Model as _RTModel
+    from speechmatics.voice import EndOfUtteranceMode as _EOUMode
 except ImportError:  # pragma: no cover - plugin not installed
     _speechmatics = None
     _RTModel = None
+    _EOUMode = None
 
 
 if _speechmatics is not None:
@@ -92,6 +94,18 @@ if _speechmatics is not None:
             merged = dict(config.advanced_engine_control or {})
             merged["model"] = model
             config.advanced_engine_control = merged
+            # End-of-utterance: the EXTERNAL preset sets engine mode `external`, where finalization
+            # waits for the plugin VAD's finalize() round-trip — measured, the FINAL transcript
+            # lands ~1.0-1.45s after speech ends, and the LLM can't start until it does, so
+            # preemptive generation got no real head start (its lead was ~0.01s on most turns).
+            # FIXED mode makes the ENGINE self-finalize after a fixed silence window instead. The
+            # session's TurnDetector still owns turn-taking, and its commit needs >=1.0s of silence
+            # (Arabic), so the final now arrives BEFORE the commit rather than after. Mid-speech
+            # chunking (max_delay) and punctuation are untouched — unlike the old max_delay=0.7
+            # cadence-chopping, this only finalizes on a real >=0.8s pause.
+            config.end_of_utterance_mode = _EOUMode.FIXED
+            config.end_of_utterance_silence_trigger = 0.8
+            config.end_of_utterance_max_delay = 1.6
             return config
 
 
