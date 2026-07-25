@@ -169,7 +169,12 @@ async def entrypoint(ctx: JobContext) -> None:
         # speech, zero transcripts, no error raised) — the agent sat quietly deaf for the whole
         # call. If the VAD keeps reporting user speech but no transcript (interim OR final)
         # arrives, shout about it so the failure mode is never invisible again.
-        stall = {"speech_events": 0, "last_transcript": time.monotonic(), "reported": False}
+        stall = {
+            "speech_events": 0,
+            "last_transcript": time.monotonic(),
+            "speech_started": 0.0,
+            "reported": False,
+        }
 
         # 9-10. Capture turns + stream transcript (the agent's own STT is the source, VR-5).
         @session.on("user_input_transcribed")
@@ -219,6 +224,12 @@ async def entrypoint(ctx: JobContext) -> None:
         def _on_user_state(ev: UserStateChangedEvent) -> None:
             _log.info("user_state", attempt_id=attempt_id, frm=ev.old_state, to=ev.new_state)
             if ev.new_state == "speaking":
+                stall["speech_started"] = time.monotonic()
+            elif ev.old_state == "speaking":
+                # Count only REAL utterances (>=0.7s): sub-second bursts («اه», «طب») often
+                # legitimately produce no transcript and false-alarmed the watchdog.
+                if time.monotonic() - stall["speech_started"] < 0.7:
+                    return
                 stall["speech_events"] += 1
                 if stall["speech_events"] >= 3 and not stall["reported"]:
                     stall["reported"] = True
