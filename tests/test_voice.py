@@ -14,7 +14,7 @@ from livekit.plugins import xai
 from bluelab_runtime_bundle import PersonaSections, RuntimeBundle, assert_runtime_safe
 from bluelab_voice.agent import (
     GUARDRAILS_VERSION,
-    SECTION_1_GUARDRAILS,
+    STATIC_PROMPT_BLOCKS,
     build_system_prompt,
 )
 from bluelab_voice.config import Settings
@@ -50,18 +50,24 @@ def test_bundle_passes_guard() -> None:
 
 def test_system_prompt_contains_guardrails_and_sections() -> None:
     prompt = build_system_prompt(_bundle())
-    assert SECTION_1_GUARDRAILS in prompt
-    assert prompt.startswith(SECTION_1_GUARDRAILS)  # guardrails first, for prompt caching
+    for block in STATIC_PROMPT_BLOCKS:
+        assert block in prompt
+    assert prompt.startswith(STATIC_PROMPT_BLOCKS[0])  # the preamble frames everything
     assert "WHO YOU ARE" in prompt and "Tarek" in prompt
     assert "CALL CONTEXT" in prompt
+    # v19 narrative order: the scene lands LAST (recency), with CALL CONTEXT just before it.
+    # (rindex: the rules also MENTION these section names, so compare the headers themselves.)
+    assert prompt.rindex("CALL CONTEXT") < prompt.rindex("WHERE YOU ARE RIGHT NOW")
+    assert prompt.rstrip().endswith("Annoyed at the interruption, ready to hang up.")
     lowered = prompt.lower()
     for forbidden in ("rubric", "answer_key", "scorecard", "success_criteria"):
         assert forbidden not in lowered
 
 
-def test_section_1_is_byte_stable() -> None:
-    for token in ("{", "}", "%s", "format("):
-        assert token not in SECTION_1_GUARDRAILS
+def test_static_blocks_are_byte_stable() -> None:
+    for block in STATIC_PROMPT_BLOCKS:
+        for token in ("{", "}", "%s", "format("):
+            assert token not in block
 
 
 def test_hmac_sign_and_verify_roundtrip() -> None:
