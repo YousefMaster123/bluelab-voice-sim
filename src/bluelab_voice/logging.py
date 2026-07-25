@@ -60,3 +60,33 @@ def configure_logging(level: str = "INFO", *, json: bool = True) -> None:
 
 def get_logger(name: str | None = None):
     return structlog.get_logger(name)
+
+
+class _PromotePreemptiveDebug(logging.Filter):
+    """Surface the SDK's DEBUG 'using preemptive generation' line at INFO.
+
+    livekit-agents logs preemptive-generation HITS only at DEBUG (misses are WARNING), so at the
+    production INFO level we could never confirm the feature engages. Attached to the
+    `livekit.agents` logger, this promotes that one record to INFO (its `preemptive_lead_time`
+    extra shows how much head start the LLM got) and drops every other DEBUG record, so raising
+    the logger to DEBUG does not flood INFO-level handlers.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno > logging.DEBUG:
+            return True
+        if "using preemptive generation" in str(record.msg):
+            record.levelno = logging.INFO
+            record.levelname = "INFO"
+            return True
+        return False
+
+
+def surface_preemptive_generation_logs() -> None:
+    """Make preemptive-generation hits visible at INFO on the `livekit.agents` logger.
+
+    Must run in the JOB process (e.g. from the prewarm hook) — that is where AgentActivity logs.
+    """
+    lk = logging.getLogger("livekit.agents")
+    lk.setLevel(logging.DEBUG)
+    lk.addFilter(_PromotePreemptiveDebug())

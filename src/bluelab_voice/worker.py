@@ -24,6 +24,7 @@ implementation time (AIR-9).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -46,22 +47,56 @@ from livekit.agents import (
     inference,
     room_io,
 )
-from livekit.agents.llm import ChatMessage
+from livekit.agents.llm import ChatContext, ChatMessage
 
 from .agent import ProspectAgent, build_session
 from .bundle_client import BundleClient, BundleUnavailableError
 from .callbacks import CallbackClient
 from .config import get_settings
-from .logging import configure_logging, get_logger, set_attempt_id
+from .logging import (
+    configure_logging,
+    get_logger,
+    set_attempt_id,
+    surface_preemptive_generation_logs,
+)
 from .transcript import TranscriptStreamer
 
 server = AgentServer()
 _log = get_logger("bluelab.voice.worker")
 
+# Strong refs for fire-and-forget tasks (asyncio only keeps weak refs; without this a warmup
+# task could be garbage-collected mid-flight once entrypoint returns).
+_bg_tasks: set[asyncio.Task[None]] = set()
+
 
 def prewarm(proc: JobProcess) -> None:
     """Preload the Silero VAD once per process to absorb first-join latency (07 §6 prewarm)."""
     proc.userdata["vad"] = inference.VAD(model="silero")
+    # Job processes get their own logging; make preemptive-generation hits visible at INFO here.
+    surface_preemptive_generation_logs()
+
+
+async def _warm_llm_connection(llm_plugin: Any) -> None:
+    """Pre-establish the LLM API connection so the greeting's ttft skips TCP+TLS+HTTP/2 setup.
+
+    The FIRST reply of every call otherwise pays connection setup inside its ttft (~0.5-1s
+    observed cold vs warm). A 1-message throwaway request through the SAME plugin client opens
+    the pool while the room is still connecting; we abort after the first chunk. Best-effort —
+    failures are logged and ignored, never fatal.
+    """
+    started = time.monotonic()
+    try:
+        chat_ctx = ChatContext.empty()
+        chat_ctx.add_message(role="user", content="hi")
+        stream = llm_plugin.chat(chat_ctx=chat_ctx)
+        try:
+            async for _ in stream:
+                break  # first chunk = connection is hot; abort the rest of the generation
+        finally:
+            await stream.aclose()
+        _log.info("llm_connection_warmed", seconds=round(time.monotonic() - started, 3))
+    except Exception as exc:  # noqa: BLE001 — opportunistic warmup, never fatal
+        _log.warning("llm_warmup_failed", error=str(exc))
 
 
 # AgentServer setter form recommended by the docs over passing into the constructor.
@@ -123,6 +158,12 @@ async def entrypoint(ctx: JobContext) -> None:
         vad = ctx.proc.userdata.get("vad") or inference.VAD(model="silero")
         session = build_session(bundle, settings, vad=vad)
         streamer = TranscriptStreamer(attempt_id=attempt_id, callbacks=callback_client)
+
+        # Warm the Anthropic connection concurrently with the room join, so the greeting's
+        # first-token latency doesn't include TLS/HTTP2 setup (see _warm_llm_connection).
+        warmup = asyncio.create_task(_warm_llm_connection(session.llm))
+        _bg_tasks.add(warmup)
+        warmup.add_done_callback(_bg_tasks.discard)
 
         # 9-10. Capture turns + stream transcript (the agent's own STT is the source, VR-5).
         @session.on("user_input_transcribed")

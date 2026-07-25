@@ -430,6 +430,17 @@ def build_session(
             code_version=GUARDRAILS_VERSION,
         )
 
+    # Endpointing per language (quality-neutral latency win): Arabic speakers pause mid-sentence
+    # well past a few tenths of a second, so Arabic keeps the ~1s floor — a shorter min_delay
+    # chops their speech into fragments before it reaches the LLM. English/French turn-taking is
+    # snappier; a 0.5s floor cuts ~0.5s of dead air per turn with no quality cost there.
+    # (`endpointing.min_delay` is the 1.6.x form of the deprecated `min_endpointing_delay`.)
+    endpointing: dict[str, float] = (
+        {"min_delay": 1.0, "max_delay": 2.0}
+        if bundle.is_arabic_or_mixed
+        else {"min_delay": 0.5, "max_delay": 1.5}
+    )
+
     session: AgentSession = AgentSession(
         stt=build_stt(bundle, settings),
         llm=build_llm(bundle, settings),
@@ -449,11 +460,7 @@ def build_session(
             # (committed on brief mid-sentence pauses and cut the caller off mid-word, e.g.
             # "بصي أنا اسمي…" → agent jumps in), and LiveKit warns against overriding it anyway.
             turn_detection=inference.TurnDetector(),
-            # Require ~1s of silence before committing the caller's turn. Egyptians pause mid-sentence
-            # well past a few tenths of a second, so a short min_delay chops their speech into
-            # fragments before it reaches the LLM. (`endpointing.min_delay` is the 1.6.x form of the
-            # deprecated `min_endpointing_delay`.)
-            endpointing={"min_delay": 1.0, "max_delay": 2.0},
+            endpointing=endpointing,
             interruption={"mode": "adaptive"},
             preemptive_generation={
                 "enabled": True,
@@ -471,5 +478,6 @@ def build_session(
         turn_detection="inference.TurnDetector",
         interruption_mode="adaptive",
         preemptive_generation=True,
+        endpointing=endpointing,
     )
     return session
