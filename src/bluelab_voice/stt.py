@@ -49,9 +49,53 @@ try:
     # The non-deprecated way to pin the acoustic model on the underlying speechmatics-rt config.
     # `OperatingPoint` is deprecated there in favor of `Model` (same "enhanced"/"standard" values).
     from speechmatics.rt import Model as _RTModel
+    from speechmatics.voice import EndOfUtteranceMode as _EOUMode
+    from speechmatics.voice._client import VoiceAgentClient as _VoiceAgentClient
 except ImportError:  # pragma: no cover - plugin not installed
     _speechmatics = None
     _RTModel = None
+    _EOUMode = None
+    _VoiceAgentClient = None
+
+
+if _VoiceAgentClient is not None:
+    # ── VENDOR BUG WORKAROUND (speechmatics-voice 0.2.8) ────────────────────────────────────────
+    # Every client emission (partials, finals, turn events) drains through ONE queue worker,
+    # `VoiceAgentClient._run_stt_queue`, whose `except RuntimeError: return` (written for "event
+    # loop closed" at shutdown) catches ANY RuntimeError — e.g. a collection mutated while two
+    # finalization paths race — and permanently kills the worker, logged only at DEBUG. Observed
+    # in production as a silently deaf call: engine connected, VAD heard speech, zero transcripts,
+    # zero errors. This replacement keeps the vendor behavior byte-for-byte EXCEPT: a RuntimeError
+    # while the event loop is still running is logged at ERROR and survived (one glitched emission
+    # instead of a dead call); only a genuinely closed loop exits. Remove when upstream fixes the
+    # handler (their repo is active; see 0.2.9 RCs).
+    async def _resilient_run_stt_queue(self) -> None:  # type: ignore[no-untyped-def]
+        import asyncio
+
+        while True:
+            try:
+                callback = await self._stt_message_queue.get()
+                if asyncio.iscoroutine(callback):
+                    await callback
+                elif asyncio.iscoroutinefunction(callback):
+                    await callback()
+                elif callable(callback):
+                    result = callback()
+                    if asyncio.iscoroutine(result):
+                        await result
+            except asyncio.CancelledError:
+                return
+            except RuntimeError:
+                try:
+                    asyncio.get_running_loop()
+                except RuntimeError:
+                    _log.error("stt_queue_loop_closed_exiting")
+                    return
+                _log.error("stt_queue_runtime_error_survived", exc_info=True)
+            except Exception:  # noqa: BLE001 — mirror vendor catch-all, but at ERROR not WARNING
+                _log.error("stt_queue_exception_survived", exc_info=True)
+
+    _VoiceAgentClient._run_stt_queue = _resilient_run_stt_queue
 
 
 if _speechmatics is not None:
@@ -92,6 +136,17 @@ if _speechmatics is not None:
             merged = dict(config.advanced_engine_control or {})
             merged["model"] = model
             config.advanced_engine_control = merged
+            # FAST FINALS (the latency lever): with forced EOU off, the plugin VAD's finalize()
+            # flushes the already-streamed text LOCALLY the moment the VAD hears end of speech
+            # (~0.55s) instead of awaiting a server confirmation round-trip — finals land at
+            # ~0.6-0.8s, BEFORE the 1.0s turn-commit floor, which is what gives preemptive
+            # generation a real head start every turn. The engine's FIXED silence timer (0.8s
+            # trigger set on the constructor) is the required pairing for this flag combo and
+            # acts as the server-side cleanup/backstop. These two finalizers can race; the race
+            # is survivable ONLY because of the _resilient_run_stt_queue patch above — do not
+            # run this combination without it (observed failure: silently deaf calls).
+            config.end_of_utterance_mode = _EOUMode.FIXED
+            config.end_of_turn_config.use_forced_eou = False
             return config
 
 
@@ -146,24 +201,23 @@ def _build_direct_speechmatics(bundle: RuntimeBundle, settings: Settings) -> stt
         # far saner punctuation. (Turn commit is VAD-driven in EXTERNAL mode, so end-of-turn latency
         # barely moves; min_delay=1.0 on the turn detector still matters.)
         max_delay=3.0,
-        # No periods at all: with FIXED end-of-utterance (0.8s silence), a mid-sentence pause
-        # force-finalizes a fragment and the engine stamped each fragment as a full sentence
-        # («أنا. بكلمك من شركة.» + «اليانز.») — misleading sentence boundaries that measurably
-        # confused the LLM. Phone-call transcripts read fine without full stops (the prompt already
-        # says lines arrive chopped); question marks — the punctuation that changes meaning
-        # («معايا مريم؟») — stay permitted.
-        punctuation_overrides={"sensitivity": 0.2, "permitted_marks": [",", "?", "!"]},
+        # No periods and no exclamation marks: with FIXED end-of-utterance, a mid-sentence pause
+        # force-finalizes a fragment and the engine stamped each as a full sentence
+        # («أنا. بكلمك من شركة.») — misleading boundaries that measurably confused the LLM. With
+        # "." banned but "!" permitted, the engine SUBSTITUTED "!" as terminal punctuation on
+        # every final («عاملة ايه!») — reads as constant emphasis, so ban it too. Statements end
+        # unpunctuated (fine for a phone transcript the prompt already calls chopped); question
+        # marks — the punctuation that changes meaning («معايا مريم؟») — stay permitted.
+        punctuation_overrides={"sensitivity": 0.2, "permitted_marks": [",", "?"]},
         enable_diarization=False,  # single participant (the rep); no speaker split needed
-        # FIXED (native preset): the ENGINE self-finalizes the transcript after the silence
-        # trigger below — finals land ~0.6-0.8s after speech ends, BEFORE the session's turn
-        # commit (>=1.0s Arabic), which is what gives preemptive generation a real head start.
-        # The session's inference.TurnDetector still owns turn-taking; this mode only governs
-        # when transcripts finalize. Do NOT use SMART_TURN here, and do NOT hand-patch a FIXED
-        # engine mode onto the EXTERNAL preset: that hybrid ran an auto-loaded Silero VAD whose
-        # finalize() raced the engine's own finalization — observed once as a silently deaf call
-        # (engine connected, VAD heard speech, zero transcripts, no error). The native FIXED
-        # preset runs no VAD task at all: one finalization authority.
-        turn_detection_mode=_speechmatics.TurnDetectionMode.FIXED,
+        # EXTERNAL: the plugin's auto-loaded Silero VAD drives finalize() at end of speech; the
+        # session's inference.TurnDetector owns turn-taking. Paired with the _prepare_config
+        # override above (FIXED engine timer + forced EOU off) this is the fast-finals hybrid:
+        # VAD-triggered INSTANT local flush (~0.6-0.8s finals) + engine silence timer as backstop.
+        # Safe only with the resilient-queue patch at the top of this module. Do NOT use
+        # SMART_TURN here. Native FIXED alone was tried and rejected: the engine's server-side
+        # silence detection is noise-sensitive (finals drifted to 1.5-1.9s on long turns).
+        turn_detection_mode=_speechmatics.TurnDetectionMode.EXTERNAL,
         end_of_utterance_silence_trigger=0.8,
         end_of_utterance_max_delay=1.6,
     )
