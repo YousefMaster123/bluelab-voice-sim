@@ -167,8 +167,13 @@ def _build_direct_speechmatics(bundle: RuntimeBundle, settings: Settings) -> stt
         # far saner punctuation. (Turn commit is VAD-driven in EXTERNAL mode, so end-of-turn latency
         # barely moves; min_delay=1.0 on the turn detector still matters.)
         max_delay=3.0,
-        # Directly damp the false periods: much less trigger-happy with sentence-ending punctuation.
-        punctuation_overrides={"sensitivity": 0.2},
+        # No periods at all: with FIXED end-of-utterance (0.8s silence), a mid-sentence pause
+        # force-finalizes a fragment and the engine stamped each fragment as a full sentence
+        # («أنا. بكلمك من شركة.» + «اليانز.») — misleading sentence boundaries that measurably
+        # confused the LLM. Phone-call transcripts read fine without full stops (the prompt already
+        # says lines arrive chopped); question marks — the punctuation that changes meaning
+        # («معايا مريم؟») — stay permitted.
+        punctuation_overrides={"sensitivity": 0.2, "permitted_marks": [",", "?", "!"]},
         enable_diarization=False,  # single participant (the rep); no speaker split needed
         # EXTERNAL: the plugin only finalizes transcripts (via an auto-loaded Silero VAD); the
         # session's inference.TurnDetector still owns turn-taking. Do NOT use SMART_TURN here.
