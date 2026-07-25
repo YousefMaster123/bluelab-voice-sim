@@ -165,9 +165,17 @@ async def entrypoint(ctx: JobContext) -> None:
         _bg_tasks.add(warmup)
         warmup.add_done_callback(_bg_tasks.discard)
 
+        # DEAF-CALL WATCHDOG: a silent STT stall was observed once (engine connected, VAD heard
+        # speech, zero transcripts, no error raised) — the agent sat quietly deaf for the whole
+        # call. If the VAD keeps reporting user speech but no transcript (interim OR final)
+        # arrives, shout about it so the failure mode is never invisible again.
+        stall = {"speech_events": 0, "last_transcript": time.monotonic(), "reported": False}
+
         # 9-10. Capture turns + stream transcript (the agent's own STT is the source, VR-5).
         @session.on("user_input_transcribed")
         def _on_user_transcribed(ev: UserInputTranscribedEvent) -> None:
+            stall["speech_events"] = 0
+            stall["last_transcript"] = time.monotonic()
             if ev.is_final and ev.transcript.strip():
                 # STT PROOF (Deepgram nova-3 `multi`): `language` is the per-segment detected
                 # language — watch it flip between ar/en as you code-switch mid-call (VR-1/07 §1).
@@ -210,6 +218,18 @@ async def entrypoint(ctx: JobContext) -> None:
         @session.on("user_state_changed")
         def _on_user_state(ev: UserStateChangedEvent) -> None:
             _log.info("user_state", attempt_id=attempt_id, frm=ev.old_state, to=ev.new_state)
+            if ev.new_state == "speaking":
+                stall["speech_events"] += 1
+                if stall["speech_events"] >= 3 and not stall["reported"]:
+                    stall["reported"] = True
+                    _log.error(
+                        "stt_stall_suspected",
+                        attempt_id=attempt_id,
+                        speech_events_without_transcript=stall["speech_events"],
+                        seconds_since_last_transcript=round(
+                            time.monotonic() - stall["last_transcript"], 1
+                        ),
+                    )
 
         # ADAPTIVE INTERRUPTION PROOF: emitted only when interruption mode="adaptive" is actually
         # running (not the VAD fallback). `is_interruption` False = it classified your overlap as a
@@ -297,6 +317,12 @@ async def entrypoint(ctx: JobContext) -> None:
                 recoverable=ev.error.recoverable,
                 error=str(ev.error),
             )
+            if not ev.error.recoverable:
+                # An unrecoverable STT/LLM/TTS leaves a zombie call — the agent sits deaf or mute
+                # in the room while the participant keeps talking. End the job instead; the
+                # shutdown callback still flushes the transcript and fires attempt-complete.
+                _log.error("unrecoverable_session_error_shutting_down", attempt_id=attempt_id)
+                ctx.shutdown(reason="unrecoverable_session_error")
 
         # 12. Clean shutdown — flush buffered transcript + fire attempt-complete (BE-16).
         async def _on_shutdown() -> None:

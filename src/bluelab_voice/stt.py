@@ -49,11 +49,9 @@ try:
     # The non-deprecated way to pin the acoustic model on the underlying speechmatics-rt config.
     # `OperatingPoint` is deprecated there in favor of `Model` (same "enhanced"/"standard" values).
     from speechmatics.rt import Model as _RTModel
-    from speechmatics.voice import EndOfUtteranceMode as _EOUMode
 except ImportError:  # pragma: no cover - plugin not installed
     _speechmatics = None
     _RTModel = None
-    _EOUMode = None
 
 
 if _speechmatics is not None:
@@ -94,25 +92,6 @@ if _speechmatics is not None:
             merged = dict(config.advanced_engine_control or {})
             merged["model"] = model
             config.advanced_engine_control = merged
-            # End-of-utterance: the EXTERNAL preset sets engine mode `external`, where finalization
-            # waits for the plugin VAD's finalize() round-trip — measured, the FINAL transcript
-            # lands ~1.0-1.45s after speech ends, and the LLM can't start until it does, so
-            # preemptive generation got no real head start (its lead was ~0.01s on most turns).
-            # FIXED mode makes the ENGINE self-finalize after a fixed silence window instead. The
-            # session's TurnDetector still owns turn-taking, and its commit needs >=1.0s of silence
-            # (Arabic), so the final now arrives BEFORE the commit rather than after. Mid-speech
-            # chunking (max_delay) and punctuation are untouched — unlike the old max_delay=0.7
-            # cadence-chopping, this only finalizes on a real >=0.8s pause.
-            config.end_of_utterance_mode = _EOUMode.FIXED
-            config.end_of_utterance_silence_trigger = 0.8
-            config.end_of_utterance_max_delay = 1.6
-            # REQUIRED with FIXED: the EXTERNAL preset sets use_forced_eou=True, and the client
-            # rejects FIXED+forced-EOU without engine VAD ("FIXED mode cannot be used in
-            # conjunction with forced end of utterance without VAD enabled"). With forced EOU off,
-            # FIXED sends the engine a ConversationConfig carrying the silence trigger (the
-            # behavior we want) and the plugin's VAD-driven finalize() degrades to a harmless
-            # local segment flush.
-            config.end_of_turn_config.use_forced_eou = False
             return config
 
 
@@ -175,7 +154,16 @@ def _build_direct_speechmatics(bundle: RuntimeBundle, settings: Settings) -> stt
         # («معايا مريم؟») — stay permitted.
         punctuation_overrides={"sensitivity": 0.2, "permitted_marks": [",", "?", "!"]},
         enable_diarization=False,  # single participant (the rep); no speaker split needed
-        # EXTERNAL: the plugin only finalizes transcripts (via an auto-loaded Silero VAD); the
-        # session's inference.TurnDetector still owns turn-taking. Do NOT use SMART_TURN here.
-        turn_detection_mode=_speechmatics.TurnDetectionMode.EXTERNAL,
+        # FIXED (native preset): the ENGINE self-finalizes the transcript after the silence
+        # trigger below — finals land ~0.6-0.8s after speech ends, BEFORE the session's turn
+        # commit (>=1.0s Arabic), which is what gives preemptive generation a real head start.
+        # The session's inference.TurnDetector still owns turn-taking; this mode only governs
+        # when transcripts finalize. Do NOT use SMART_TURN here, and do NOT hand-patch a FIXED
+        # engine mode onto the EXTERNAL preset: that hybrid ran an auto-loaded Silero VAD whose
+        # finalize() raced the engine's own finalization — observed once as a silently deaf call
+        # (engine connected, VAD heard speech, zero transcripts, no error). The native FIXED
+        # preset runs no VAD task at all: one finalization authority.
+        turn_detection_mode=_speechmatics.TurnDetectionMode.FIXED,
+        end_of_utterance_silence_trigger=0.8,
+        end_of_utterance_max_delay=1.6,
     )
