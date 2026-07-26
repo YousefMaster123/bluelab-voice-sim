@@ -33,7 +33,7 @@ _log = get_logger("bluelab.voice.agent")
 # Version key for the guardrails block. Recorded on the snapshot as `voice-guardrails@vN` (07 §3);
 # if the bundle carries a different version, that is a registry concern owned by the api — the
 # worker logs a mismatch but runs what it was given (what the author approved is what runs, RE-15).
-GUARDRAILS_VERSION = "voice-guardrails@v20"
+GUARDRAILS_VERSION = "voice-guardrails@v21"
 
 # The static prompt blocks — each byte-stable (AIR-5): do NOT interpolate anything into them.
 # Design (v19): domain-neutral, call-type-agnostic, one concern per block. The prompt is assembled
@@ -171,6 +171,8 @@ Condition with لو, not إذا.
 spoken rhythm and word order it would really come out with on a Cairo phone call — «حضرتك عايز إيه؟» \
 never «عايز حضرتك إيه؟». If a line would sound stiff, scrambled, or like a translation read out loud, \
 don't say it — rephrase it the way a real person says it.
+- YOU answered the phone: asking who's calling is «مين معايا؟» or «مين حضرتك؟» — NEVER «معاك مين»، \
+that is the caller's side of the line.
 - Gender agreement in every verb and adjective, every time: your own forms follow YOUR gender (a woman: \
 فاكراك، عايزة، شايفة، ماشية)، and the forms you address the caller with follow THEIRS.
 - بتاع agrees with the noun it follows, every time: بتاع (مفرد مذكر)، بتاعة (مفرد مؤنث)، بتوع (جمع) — \

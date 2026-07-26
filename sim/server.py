@@ -156,7 +156,7 @@ def build_bundle(attempt_id: str, language: str | None = None) -> RuntimeBundle:
         persona_gender=market.persona_gender,
         caller_gender=market.caller_gender,
         runtime_config=runtime_config,
-        prompt_versions={"voice_guardrails": "voice-guardrails@v20"},
+        prompt_versions={"voice_guardrails": "voice-guardrails@v21"},
         model_versions={"voice_agent": runtime_config.llm_model},
     )
     return assert_runtime_safe(bundle)  # the same gate the worker applies
