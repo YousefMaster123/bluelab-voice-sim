@@ -358,7 +358,17 @@ class Handler(BaseHTTPRequestHandler):
             rec = _attempt(attempt_id)
             if rec is not None:
                 with _LOCK:
-                    rec["transcript"].append({"speaker": speaker, "text": text, "seq": seq})
+                    # Idempotent on (sequence_index, speaker) — the contract the worker is written
+                    # against ("Idempotency is server-side on (attempt_id, sequence_index,
+                    # speaker), so a retried or duplicated push is safe"). The sim was appending
+                    # blindly, so any retried segment showed up twice in the UI.
+                    if not any(
+                        line["seq"] == seq and line["speaker"] == speaker
+                        for line in rec["transcript"]
+                    ):
+                        rec["transcript"].append(
+                            {"speaker": speaker, "text": text, "seq": seq}
+                        )
             print(f"[sim] {seq:>3}  {speaker:>11}: {text}", flush=True)
             self._json(200, {"ok": True})
             return

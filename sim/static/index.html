@@ -150,12 +150,20 @@ function addLine(l) {
 
 function startPolling() {
   stopPolling();
+  // `inFlight` is load-bearing: setInterval fires every 1s regardless of whether the previous
+  // async fetch finished, and `cursor` only advances AFTER its await resolves. Once a response
+  // took >1s, the next tick re-requested the SAME `after=` and re-appended every line — which
+  // made the response bigger, which made it slower, which caused more overlap. That feedback
+  // loop is what replayed the whole conversation over and over and ground the page to a halt.
+  let inFlight = false;
   poll = setInterval(async () => {
-    if (!attemptId) return;
+    if (!attemptId || inFlight) return;
+    inFlight = true;
     try {
       const d = await (await fetch(api(`/sim/events?attempt_id=${attemptId}&after=${cursor}`))).json();
       if (d.lines) { d.lines.forEach(addLine); cursor = d.next; }
-    } catch (_) {}
+    } catch (_) {
+    } finally { inFlight = false; }
   }, 1000);
 }
 function stopPolling() { if (poll) { clearInterval(poll); poll = null; } }
