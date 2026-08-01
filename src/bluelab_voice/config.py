@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # DIRECT plugin instead of LiveKit Inference — the only path that can send the raw bilingual
     # `ar_en` code (Inference normalizes ar_en → ar-EN = Arabic-only). Empty → Inference path.
     speechmatics_api_key: str = ""
+    # Direct Fish Audio plugin key. Required when a bundle sets tts_provider="fishaudio" — Fish's
+    # community/custom voices are NOT reachable through LiveKit Inference, only the direct plugin.
+    fish_api_key: str = ""
 
     # ── LiveKit Cloud — worker registration + room join (07 §6) ──
     livekit_url: str = ""

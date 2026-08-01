@@ -8,6 +8,7 @@ need livekit live in test_contract.py.
 
 from __future__ import annotations
 
+import pytest
 from livekit.agents import inference
 from livekit.plugins import xai
 
@@ -73,6 +74,25 @@ def test_end_call_is_the_only_tool_and_is_described_to_the_model() -> None:
     # tool is dead weight (the pre-v22 state: the prompt promised a hangup with nothing behind it).
     prompt = build_system_prompt(_bundle())
     assert "end_call" in prompt and "<ending_the_call>" in prompt
+
+
+def test_fish_provider_builds_fish_tts_and_requires_a_voice_id() -> None:
+    """tts_provider=fishaudio routes to the direct Fish plugin, keyed by reference id."""
+    from livekit.plugins import fishaudio
+
+    bundle = _bundle()
+    bundle.runtime_config.tts_provider = "fishaudio"
+    bundle.runtime_config.tts_voice_id = "14f1000b77d547eeb5f03b474dd29e0f"
+    bundle.runtime_config.tts_model = "s2.1-pro-free"
+    bundle.runtime_config.tts_speed = 1.2
+    engine = build_tts(bundle, Settings(fish_api_key="k"))
+    assert isinstance(engine, fishaudio.TTS)
+
+    # A Fish voice lives in runtime_config, NOT bundle.voice (still the leo/eve Literal) — so a
+    # missing id must fail loudly rather than silently synthesizing with Fish's default voice.
+    bundle.runtime_config.tts_voice_id = None
+    with pytest.raises(ValueError, match="tts_voice_id"):
+        build_tts(bundle, Settings(fish_api_key="k"))
 
 
 def test_static_blocks_are_byte_stable() -> None:

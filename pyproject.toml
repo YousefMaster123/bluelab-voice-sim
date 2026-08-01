@@ -10,7 +10,9 @@ dependencies = [
   # [speechmatics] = the DIRECT plugin for the raw bilingual `ar_en` path (pulls speechmatics-voice
   # + speechmatics-rt); [silero] = the VAD stt.py imports on the main thread for that path. Both are
   # imported directly in src/ and MUST be declared or a clean/deploy build silently loses them.
-  "livekit-agents[turn-detector,anthropic,xai,speechmatics,silero]~=1.5",
+  # [fishaudio] = the DIRECT Fish plugin; Fish's custom/community voices are unreachable via
+  # LiveKit Inference, so a playground voice needs our own key and this plugin.
+  "livekit-agents[turn-detector,anthropic,xai,speechmatics,silero,fishaudio]~=1.5",
   # Direct Anthropic SDK (the plugin wraps it; also used for cache-control message blocks).
   "anthropic>=0.40",
   # Outbound calls to the api (bundle fetch + HMAC callbacks) — no Supabase client (REPO-4).

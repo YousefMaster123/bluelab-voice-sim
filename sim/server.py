@@ -146,6 +146,14 @@ def build_bundle(attempt_id: str, language: str | None = None) -> RuntimeBundle:
         stt_operating_point="enhanced",
         llm_model=_env("SIM_LLM_MODEL", "claude-sonnet-4-5"),
     )
+    # TTS A/B switch: set SIM_TTS_VOICE_ID to a Fish reference id to run the whole sim on Fish
+    # Audio instead of xAI. Env-driven on purpose — flipping providers for a listening test must
+    # not need a redeploy of the agent. Unset → the xAI path, exactly as before.
+    if fish_voice_id := _env("SIM_TTS_VOICE_ID"):
+        runtime_config.tts_provider = "fishaudio"
+        runtime_config.tts_voice_id = fish_voice_id
+        runtime_config.tts_model = _env("SIM_TTS_MODEL", "s2.1-pro-free")
+        runtime_config.tts_speed = float(_env("SIM_TTS_SPEED", "1.2"))
     bundle = RuntimeBundle(
         attempt_id=attempt_id,
         org_id="sim-org",

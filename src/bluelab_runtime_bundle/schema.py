@@ -88,9 +88,17 @@ class RuntimeConfig(BaseModel):
     llm_max_tokens: int = 1024
     llm_prompt_caching: bool = True
 
-    # TTS — xAI Grok; voice (leo/eve) is carried separately on the bundle.
+    # TTS — xAI Grok by default; voice (leo/eve) is carried separately on the bundle.
     tts_provider: str = "xai"
     tts_model: str = "tts-1"
+    # Provider-specific voice handle, used when `tts_provider` is not xAI. Fish Audio identifies
+    # voices by a 32-char reference id rather than a name, so it cannot go in `bundle.voice`
+    # (a Literal["leo","eve"] the api and the guard both validate against). Keeping it here means
+    # adding a provider never widens that Literal, and bundles built before this field still load.
+    tts_voice_id: str | None = None
+    # Speaking-rate multiplier for providers that expose one (Fish `prosody.speed`). None = the
+    # voice's natural pace.
+    tts_speed: float | None = None
 
     # Turn detection — per-language; Arabic/mixed → language-agnostic VAD (07 §1/§6).
     turn_detection: Literal["vad", "stt", "multilingual"] = "vad"

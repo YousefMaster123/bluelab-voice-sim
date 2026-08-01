@@ -56,8 +56,53 @@ def _tts_language(bundle: RuntimeBundle) -> str:
     return "ar-EG" if bundle.is_arabic_or_mixed else "auto"
 
 
-def build_tts(bundle: RuntimeBundle, settings: Settings) -> xai.TTS:
-    """Construct the direct xAI Grok TTS with the bundle's pinned voice (leo/eve)."""
+def _build_fish_tts(bundle: RuntimeBundle, settings: Settings) -> agents.tts.TTS:
+    """Fish Audio via the direct plugin — the only route to a custom/community voice.
+
+    LiveKit Inference exposes Fish's default voice library only ("pre-existing custom Fish Audio
+    voices are not available through LiveKit Inference"), so a voice picked from the playground
+    requires our own key + this plugin.
+
+    NOTE there is no `language` argument on this plugin (unlike xAI): with Fish the accent is a
+    property of the trained voice, so `_tts_language` has nothing to feed it. A voice trained on
+    Egyptian Arabic stays Egyptian in every market.
+    """
+    from livekit.plugins import fishaudio
+
+    cfg = bundle.runtime_config
+    voice_id = (cfg.tts_voice_id or "").strip()
+    if not voice_id:
+        raise ValueError("tts_provider=fishaudio requires runtime_config.tts_voice_id")
+
+    _log.info(
+        "tts_build",
+        provider="fishaudio",
+        model=cfg.tts_model,
+        voice_id=voice_id,
+        speed=cfg.tts_speed,
+        language_hint="n/a (baked into the voice)",
+    )
+    kwargs: dict[str, object] = {}
+    if cfg.tts_speed is not None:
+        kwargs["speed"] = cfg.tts_speed
+    return fishaudio.TTS(
+        api_key=settings.fish_api_key or agents.NOT_GIVEN,
+        # `model` is typed `TTSModels | str`, so ids outside the literal (e.g. the credit-free
+        # `s2.1-pro-free`) pass straight through to the API.
+        model=cfg.tts_model,
+        voice_id=voice_id,
+        # Match the xAI path's 44.1 kHz so switching provider doesn't also change audio quality.
+        sample_rate=44100,
+        latency_mode="normal",
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
+def build_tts(bundle: RuntimeBundle, settings: Settings) -> agents.tts.TTS:
+    """Construct the bundle's TTS: direct xAI Grok (leo/eve), or Fish Audio when pinned."""
+    if bundle.runtime_config.tts_provider.strip().lower() in ("fish", "fishaudio"):
+        return _build_fish_tts(bundle, settings)
+
     language = _tts_language(bundle)
     _log.info(
         "tts_build",
