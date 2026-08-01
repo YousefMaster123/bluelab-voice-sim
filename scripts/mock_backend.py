@@ -38,6 +38,7 @@ from bluelab_runtime_bundle import (  # noqa: E402
     RuntimeConfig,
     assert_runtime_safe,
 )
+from bluelab_voice.agent import GUARDRAILS_VERSION  # noqa: E402
 
 HOST, PORT = "127.0.0.1", 8000
 
@@ -127,7 +128,7 @@ def build_bundle(attempt_id: str) -> RuntimeBundle:
         persona=_PERSONA,
         voice="eve",  # female voice for Mona (HR manager)
         runtime_config=runtime_config,
-        prompt_versions={"voice_guardrails": "voice-guardrails@v16"},
+        prompt_versions={"voice_guardrails": GUARDRAILS_VERSION},
         model_versions={"voice_agent": llm_model},
     )
     return assert_runtime_safe(bundle)  # same gate the worker applies; fail loud if we regress

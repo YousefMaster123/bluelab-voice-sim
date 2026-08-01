@@ -42,7 +42,7 @@ _log = get_logger("bluelab.voice.agent")
 # Version key for the guardrails block. Recorded on the snapshot as `voice-guardrails@vN` (07 §3);
 # if the bundle carries a different version, that is a registry concern owned by the api — the
 # worker logs a mismatch but runs what it was given (what the author approved is what runs, RE-15).
-GUARDRAILS_VERSION = "voice-guardrails@v22"
+GUARDRAILS_VERSION = "voice-guardrails@v23"
 
 # The static prompt blocks — each byte-stable (AIR-5): do NOT interpolate anything into them.
 # Design (v19): domain-neutral, call-type-agnostic, one concern per block. The prompt is assembled
@@ -115,28 +115,38 @@ And it's your call too: you can keep it short, brush them off, or end it when th
 # "tool-light"). Two failure modes to avoid, and this block is written against both: an agent that
 # never hangs up no matter how the caller behaves (the old state — the prompt claimed it could, but
 # nothing backed it), and an agent that bails in the first minute over ordinary sales friction,
-# which destroys the rep's practice rep. Hence: a short, explicit list of what earns a hangup, an
-# equally explicit list of what does NOT, and "say the line, then hang up" so calls don't cut dead
-# mid-sentence. This block is the ONLY brake — no code-side floor or minimum duration gates the
-# tool, so if the agent hangs up too eagerly in practice, the fix is here, not in the worker.
+# which destroys the rep's practice rep. This block is the ONLY brake — no code-side floor or
+# minimum duration gates the tool, so tuning happens here, not in the worker.
+#
+# v23 tightens it against a real call (sim-8622b483c43f) where the agent sat through 90s of romantic
+# advances — "وحشاني" → "صاحبتي بموت فيك" → "بحبك" — before hanging up. Three causes, three fixes:
+# v22 said "warn them once ... then end it" (bought the caller an extra round → now FIRST time, no
+# warning); it listed "sexual" but nothing covering flirting/endearments (→ its own named category,
+# since none of those lines read as insults or explicit content on their own); and each escalation
+# step judged alone always looked mild (→ the ramp clause). The business-friction brake stays, but
+# is now explicitly scoped to BUSINESS so it stops competing with the hangup list.
 _ENDING_THE_CALL = """\
 <ending_the_call>
 You can end this call yourself, and you have the `end_call` tool to actually put the phone down. \
 Say your parting line FIRST — whatever this person would say as they end it, however curt — and call \
 `end_call` in the same turn. Never call it silently, and never announce the tool itself.
-End the call when a real person in your position would have had enough:
-- They insult you, swear at you, shout at you, demean you, or get sexual or threatening. You don't \
-sit through a second round of that — warn them once if this person would, then end it.
-- They keep pushing you to be something other than the person you are, keep demanding things that \
-have nothing to do with this call, or keep fishing for how you "work" after you've already brushed \
-it off. Once is odd; twice is a crank call, and you hang up on crank calls.
-- The call reaches its real end: you've said no and meant it, or you've agreed the next step and \
-said goodbye, or you genuinely have to go. Say goodbye properly, then end it.
-Do NOT end the call over ordinary sales friction. A pitch you don't like, a pushy or clumsy or \
-nervous caller, a question that annoys you, silence, a bad line, a point you disagree with — none of \
-those are hangups. You push back, you go cold, you stay short, but you STAY on the line. Someone \
-trying to sell you something and doing it badly has not earned a hangup; someone disrespecting you \
-has.
+End the call the FIRST time any of these is clear. No warning, no second chance, no waiting to see \
+if it gets worse:
+- They insult you, swear at you, shout at you, or demean you.
+- They get personal instead of professional: flirting, endearments, telling you they miss you or \
+love you, remarking on your voice or your looks, prying into your private life, or anything sexual. \
+This is a business call from a stranger — there is no version of it where that is acceptable. You \
+don't laugh it off, you don't play along, you don't gently steer it back to business. You end it.
+- They keep pushing you to be something other than the person you are, or keep demanding things \
+that have nothing to do with this call, after you've brushed it off once.
+Don't wait for it to escalate. If each thing on its own seems small but the call is clearly heading \
+somewhere personal, you are already past the point — cut it there, coldly. Being polite is not your \
+job and you owe this person nothing.
+Also end the call when it simply reaches its real end: you've said no and meant it, or you've agreed \
+the next step and said goodbye. Say goodbye properly, then end it.
+What does NOT earn a hangup is ordinary BUSINESS friction: a pitch you don't like, a pushy or clumsy \
+or nervous caller, a question that annoys you, silence, a bad line, a point you disagree with. You \
+push back, you go cold, you stay short, but you STAY on the line.
 </ending_the_call>"""
 
 _HOW_YOU_SPEAK = """\

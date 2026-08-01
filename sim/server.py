@@ -59,7 +59,10 @@ from bluelab_runtime_bundle import (  # noqa: E402
 # plugins to be registered on the MAIN thread. Importing it lazily inside a request handler (which
 # runs on a worker thread of ThreadingHTTPServer) raises "Plugins must be registered on the main
 # thread". Costs ~2s of startup; buys a prompt preview that is the worker's real assembler.
-from bluelab_voice.agent import build_system_prompt  # noqa: E402
+# GUARDRAILS_VERSION comes from the same module for a reason: the sim used to hardcode the version
+# string, which silently drifted every time the guardrails were bumped (v21 bundle vs v22 code) and
+# stamped the WRONG prompt version on every sim attempt record. Importing it makes drift impossible.
+from bluelab_voice.agent import GUARDRAILS_VERSION, build_system_prompt  # noqa: E402
 
 # PORT is injected by the host (Railway/Fly/Render set it); 8000 locally. HOST must stay 0.0.0.0 so
 # the container is reachable from outside — binding 127.0.0.1 makes a deployed service unroutable.
@@ -156,7 +159,7 @@ def build_bundle(attempt_id: str, language: str | None = None) -> RuntimeBundle:
         persona_gender=market.persona_gender,
         caller_gender=market.caller_gender,
         runtime_config=runtime_config,
-        prompt_versions={"voice_guardrails": "voice-guardrails@v21"},
+        prompt_versions={"voice_guardrails": GUARDRAILS_VERSION},
         model_versions={"voice_agent": runtime_config.llm_model},
     )
     return assert_runtime_safe(bundle)  # the same gate the worker applies
