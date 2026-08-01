@@ -49,11 +49,13 @@ try:
     # The non-deprecated way to pin the acoustic model on the underlying speechmatics-rt config.
     # `OperatingPoint` is deprecated there in favor of `Model` (same "enhanced"/"standard" values).
     from speechmatics.rt import Model as _RTModel
+    from speechmatics.voice import AdditionalVocabEntry as _VocabEntry
     from speechmatics.voice import EndOfUtteranceMode as _EOUMode
     from speechmatics.voice._client import VoiceAgentClient as _VoiceAgentClient
 except ImportError:  # pragma: no cover - plugin not installed
     _speechmatics = None
     _RTModel = None
+    _VocabEntry = None
     _EOUMode = None
     _VoiceAgentClient = None
 
@@ -98,17 +100,27 @@ if _VoiceAgentClient is not None:
     _VoiceAgentClient._run_stt_queue = _resilient_run_stt_queue
 
 
-# Speechmatics custom dictionary (`additional_vocab`): each entry is the spelling we want back,
-# plus `sounds_like` pronunciations to match against. `sounds_like` is written the way the word is
-# SAID, not spelled — «أليانز» is pronounced with a long a and no hamza in speech, and the engine's
-# wrong guesses («عارفاها», «اليوم») show it was hearing something in that shape.
+# Speechmatics custom dictionary: `content` is the spelling we want back, `sounds_like` are
+# pronunciations to match against, written the way the word is SAID rather than spelled — the
+# engine's wrong guesses («عارفاها», «اليوم») show roughly what shape it was hearing.
+#
+# MUST be AdditionalVocabEntry objects, not plain dicts. `_prepare_config` returns the VoiceAgent
+# config, and the client later reads `e.content` off every entry when converting to the rt config —
+# dicts crash it with AttributeError, which surfaces as an unrecoverable stt_error that kills the
+# call right after the greeting. (Learned the hard way; the test below now pins the type.)
 #
 # Keep this list SHORT. Speechmatics biases the model toward every entry, so unrelated audio starts
-# getting pulled toward these spellings — a 500-word dictionary makes recognition worse, not better.
+# getting pulled toward these spellings — a large dictionary makes recognition worse, not better.
 # Only add nouns that actually appear in calls and actually get missed.
-_ADDITIONAL_VOCAB: list[dict[str, object]] = [
-    {"content": "أليانز", "sounds_like": ["اليانز", "أليانس", "اليانس", "الايانز"]},
+_VOCAB_TERMS: list[tuple[str, list[str]]] = [
+    ("أليانز", ["اليانز", "أليانس", "اليانس", "الايانز"]),
 ]
+
+_ADDITIONAL_VOCAB = (
+    [_VocabEntry(content=content, sounds_like=sounds_like) for content, sounds_like in _VOCAB_TERMS]
+    if _VocabEntry is not None
+    else []
+)
 
 
 if _speechmatics is not None:

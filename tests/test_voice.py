@@ -157,7 +157,18 @@ def test_speechmatics_carries_the_custom_dictionary_and_arabic_endpointing() -> 
     engine = build_stt(bundle, Settings(speechmatics_api_key="k", deepgram_api_key=""))
     config = engine._prepare_config()  # type: ignore[attr-defined]
     assert config.additional_vocab == _ADDITIONAL_VOCAB
-    assert any(entry["content"] == "أليانز" for entry in _ADDITIONAL_VOCAB)
+
+    # Exercise the conversion the Speechmatics client performs on every entry. Asserting equality
+    # alone passed happily while the entries were plain dicts, and the call then died on the FIRST
+    # audio frame with AttributeError: 'dict' object has no attribute 'content' — an unrecoverable
+    # stt_error, greeting only. Reading the attributes here is what actually pins the contract.
+    converted = [
+        {"content": e.content, **({"sounds_like": e.sounds_like} if e.sounds_like else {})}
+        for e in config.additional_vocab
+    ]
+    assert {"content": "أليانز", "sounds_like": ["اليانز", "أليانس", "اليانس", "الايانز"]} in (
+        converted
+    )
     # The raw bilingual code must still survive the override that injects the dictionary.
     assert config.language == bundle.runtime_config.stt_language
 
