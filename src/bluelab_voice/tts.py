@@ -93,7 +93,14 @@ def _build_fish_tts(bundle: RuntimeBundle, settings: Settings) -> agents.tts.TTS
         voice_id=voice_id,
         # Match the xAI path's 44.1 kHz so switching provider doesn't also change audio quality.
         sample_rate=44100,
-        latency_mode="normal",
+        # MEASURED, not assumed. This was "normal" ("favour quality over latency") until a
+        # three-run-per-mode comparison on the production voice + Arabic text showed what that
+        # actually cost: normal 1.37s mean time-to-first-byte vs balanced 0.62s vs low 0.65s. The
+        # quality assumption was never tested and the penalty was ~0.75s on EVERY turn. `low` buys
+        # nothing further on Arabic, so `balanced` (also the plugin's own default) it is.
+        # Incidentally: Arabic synthesis is FASTER than English here, so the dialect was never
+        # the latency problem it looked like.
+        latency_mode="balanced",
         **kwargs,  # type: ignore[arg-type]
     )
 

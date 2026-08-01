@@ -93,6 +93,12 @@ async def main() -> int:
         "--fish-model", default="s2.1-pro-free", help="s2.1-pro-free | s2.1-pro | s2-pro | s1"
     )
     ap.add_argument("--fish-sample-rate", type=int, default=44100, help="match xAI's 44.1 kHz")
+    ap.add_argument(
+        "--fish-latency",
+        default="normal",
+        choices=["normal", "balanced", "low"],
+        help="Fish streaming latency mode (plugin default is 'balanced'; production uses 'normal')",
+    )
     # Fish `prosody.speed` multiplier. Repeatable so one run renders a ladder to pick from by ear;
     # أسماء reads ~50% longer than xAI eve on the same line at her natural 1.0.
     ap.add_argument(
@@ -129,7 +135,7 @@ async def main() -> int:
                     sample_rate=args.fish_sample_rate,
                     # Match the production xAI setting: favour quality over shaving latency, so
                     # the comparison is quality-vs-quality, not one engine racing the other.
-                    latency_mode="normal",
+                    latency_mode=args.fish_latency,
                     **kwargs,  # type: ignore[arg-type]
                 )
                 suffix = "natural" if speed is None else f"{speed:g}x"
