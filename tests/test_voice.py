@@ -15,6 +15,7 @@ from bluelab_runtime_bundle import PersonaSections, RuntimeBundle, assert_runtim
 from bluelab_voice.agent import (
     GUARDRAILS_VERSION,
     STATIC_PROMPT_BLOCKS,
+    ProspectAgent,
     build_system_prompt,
 )
 from bluelab_voice.config import Settings
@@ -62,6 +63,16 @@ def test_system_prompt_contains_guardrails_and_sections() -> None:
     lowered = prompt.lower()
     for forbidden in ("rubric", "answer_key", "scorecard", "success_criteria"):
         assert forbidden not in lowered
+
+
+def test_end_call_is_the_only_tool_and_is_described_to_the_model() -> None:
+    """v22: the persona can hang up. One tool only — 07 §6 stays tool-light."""
+    tools = ProspectAgent(_bundle()).tools
+    assert [t.__name__ for t in tools] == ["end_call"]
+    # The prompt must actually TELL it the tool exists and what earns a hangup, otherwise the
+    # tool is dead weight (the pre-v22 state: the prompt promised a hangup with nothing behind it).
+    prompt = build_system_prompt(_bundle())
+    assert "end_call" in prompt and "<ending_the_call>" in prompt
 
 
 def test_static_blocks_are_byte_stable() -> None:

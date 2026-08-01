@@ -335,11 +335,42 @@ async def entrypoint(ctx: JobContext) -> None:
                 _log.error("unrecoverable_session_error_shutting_down", attempt_id=attempt_id)
                 ctx.shutdown(reason="unrecoverable_session_error")
 
+        # AGENT-INITIATED HANGUP (v22). The persona can end the call itself via the `end_call` tool
+        # — for abuse, for a caller who keeps dragging it off-character, or for a natural goodbye.
+        # Owned here, not in agent.py, because ending the call is a JobContext concern.
+        #
+        # `delete_room` (not `ctx.shutdown`) is deliberate: shutdown ends the JOB but leaves the
+        # participant sitting in a live room with a dead agent — indistinguishable, from the
+        # browser, from the deaf-call failure this worker already fights. delete_room disconnects
+        # the participant too, so the sim UI sees a real hangup. Room deletion then drives the
+        # normal shutdown path, so _on_shutdown below still flushes the transcript and reports.
+        hangup: dict[str, Any] = {"reason": None}
+
+        async def _hangup(reason: str) -> None:
+            hangup["reason"] = reason
+            _log.info(
+                "agent_ended_call",
+                attempt_id=attempt_id,
+                reason=reason,
+                elapsed=round(time.monotonic() - started, 1),
+            )
+            # The parting line has finished generating (RunContext.wait_for_playout in the tool),
+            # but the last frames are still in flight to the client — drain briefly so the caller
+            # hears the goodbye instead of a click.
+            await asyncio.sleep(0.5)
+            ctx.delete_room()
+
         # 12. Clean shutdown — flush buffered transcript + fire attempt-complete (BE-16).
         async def _on_shutdown() -> None:
             await streamer.aclose()
             remaining = await callback_client.flush_buffer(attempt_id)
             report = _end_of_call_report(session)
+            # WHO hung up is the single most useful coaching signal in the whole report: "the
+            # prospect ended the call on you" is feedback a rep can act on, and it must survive
+            # into the attempt record rather than living only in the worker logs.
+            report["ended_by"] = "prospect" if hangup["reason"] else "participant"
+            if hangup["reason"]:
+                report["end_reason"] = hangup["reason"]
             await callback_client.send_attempt_complete(
                 attempt_id=attempt_id,
                 status="completed",
@@ -358,7 +389,7 @@ async def entrypoint(ctx: JobContext) -> None:
         # disconnects+reconnects the participant; without this the agent session would die on the
         # first (spurious) disconnect (matches the reference agent).
         await session.start(
-            agent=ProspectAgent(bundle),
+            agent=ProspectAgent(bundle, hangup=_hangup),
             room=ctx.room,
             room_options=room_io.RoomOptions(close_on_disconnect=False),
         )
