@@ -98,6 +98,19 @@ if _VoiceAgentClient is not None:
     _VoiceAgentClient._run_stt_queue = _resilient_run_stt_queue
 
 
+# Speechmatics custom dictionary (`additional_vocab`): each entry is the spelling we want back,
+# plus `sounds_like` pronunciations to match against. `sounds_like` is written the way the word is
+# SAID, not spelled — «أليانز» is pronounced with a long a and no hamza in speech, and the engine's
+# wrong guesses («عارفاها», «اليوم») show it was hearing something in that shape.
+#
+# Keep this list SHORT. Speechmatics biases the model toward every entry, so unrelated audio starts
+# getting pulled toward these spellings — a 500-word dictionary makes recognition worse, not better.
+# Only add nouns that actually appear in calls and actually get missed.
+_ADDITIONAL_VOCAB: list[dict[str, object]] = [
+    {"content": "أليانز", "sounds_like": ["اليانز", "أليانس", "اليانس", "الايانز"]},
+]
+
+
 if _speechmatics is not None:
 
     class _RawLanguageSpeechmaticsSTT(_speechmatics.STT):
@@ -117,6 +130,12 @@ if _speechmatics is not None:
         def _prepare_config(self, language: NotGivenOr[str] = NOT_GIVEN):  # type: ignore[override]
             config = super()._prepare_config(language)
             config.language = self._raw_language  # bypass LanguageCode normalization
+            # Custom dictionary for proper nouns the acoustic model has no reason to know. Observed
+            # on a real call: «أليانز» was never recognized at ANY interim stage — the engine
+            # substituted the nearest common words instead («عارفاها», then «اليوم»), and only got
+            # it right on the third attempt. That is out-of-vocabulary behaviour, distinct from the
+            # segmentation drops elsewhere in this module, and a custom dictionary is its fix.
+            config.additional_vocab = _ADDITIONAL_VOCAB
             # Migrate operating_point -> model to clear the speechmatics-rt deprecation warning
             # ("TranscriptionConfig.operating_point is deprecated ... use the model property").
             # The speechmatics-voice client ALWAYS forwards VoiceAgentConfig.operating_point (which
@@ -232,9 +251,7 @@ def _deepgram_language(bundle: RuntimeBundle) -> str:
     return "ar" if bundle.is_arabic_or_mixed else "en-US"
 
 
-def _build_direct_deepgram(
-    bundle: RuntimeBundle, settings: Settings, stt_model: str
-) -> stt.STT:
+def _build_direct_deepgram(bundle: RuntimeBundle, settings: Settings, stt_model: str) -> stt.STT:
     """Direct Deepgram nova-3. Measurably more accurate on Egyptian Arabic than Speechmatics.
 
     Trade-off, measured on the same 12.6s clip: nova-3's finals arrive ~1-3s LATER than

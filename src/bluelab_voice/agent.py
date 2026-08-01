@@ -479,6 +479,30 @@ def build_system_prompt(bundle: RuntimeBundle) -> str:
     return "\n\n".join(parts)
 
 
+def _endpointing_for(bundle: RuntimeBundle) -> dict[str, float]:
+    """Turn-commit window per language (quality-neutral latency lever).
+
+    Arabic speakers pause mid-sentence well past a few tenths of a second, so Arabic keeps a high
+    floor — a shorter min_delay chops their speech into fragments before it reaches the LLM.
+    English/French turn-taking is snappier.
+
+    Arabic was 1.0/2.0; measured calls moved it to 1.35/1.5. The two moves pull in opposite
+    directions and are deliberately paired:
+      * min 1.0 -> 1.35. At 1.0 a natural mid-sentence pause committed the turn and the tail
+        arrived afterwards as its own segment — «...عندكم في» + «الشركة». LiveKit logs
+        `transcript arrives after turn has been committed` each time, the agent answers half a
+        sentence, and the in-flight generation is thrown away. Speechmatics' finals land ~0.5-0.6s
+        after end of speech, so the floor has to clear that.
+      * max 2.0 -> 1.5. The ceiling was HIT on three turns out of four — the detector was
+        routinely unsure and burning the whole window, making max_delay a de-facto fixed 2s tax.
+        1.5 caps the worst case without touching turns the detector is confident about.
+    Net latency is roughly flat (+0.35 floor, -0.5 ceiling) while the fragmentation goes away.
+    """
+    if bundle.is_arabic_or_mixed:
+        return {"min_delay": 1.35, "max_delay": 1.5}
+    return {"min_delay": 0.5, "max_delay": 1.5}
+
+
 class ProspectAgent(Agent):
     """The in-call AI buyer. Single-phase and near tool-light (07 §6): `end_call` is the ONLY tool.
 
@@ -544,11 +568,7 @@ def build_session(
     # chops their speech into fragments before it reaches the LLM. English/French turn-taking is
     # snappier; a 0.5s floor cuts ~0.5s of dead air per turn with no quality cost there.
     # (`endpointing.min_delay` is the 1.6.x form of the deprecated `min_endpointing_delay`.)
-    endpointing: dict[str, float] = (
-        {"min_delay": 1.0, "max_delay": 2.0}
-        if bundle.is_arabic_or_mixed
-        else {"min_delay": 0.5, "max_delay": 1.5}
-    )
+    endpointing = _endpointing_for(bundle)
 
     session: AgentSession = AgentSession(
         stt=build_stt(bundle, settings),

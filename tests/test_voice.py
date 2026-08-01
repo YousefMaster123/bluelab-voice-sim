@@ -17,6 +17,7 @@ from bluelab_voice.agent import (
     GUARDRAILS_VERSION,
     STATIC_PROMPT_BLOCKS,
     ProspectAgent,
+    _endpointing_for,
     build_system_prompt,
 )
 from bluelab_voice.config import Settings
@@ -140,6 +141,28 @@ def test_deepgram_never_gets_multi_for_arabic() -> None:
     bundle.runtime_config.stt_provider = "deepgram"
     engine = build_stt(bundle, Settings(stt_model="deepgram/nova-3", deepgram_api_key="k"))
     assert isinstance(engine, deepgram.STT)
+
+
+def test_speechmatics_carries_the_custom_dictionary_and_arabic_endpointing() -> None:
+    """Two fixes from a measured call, pinned together because both are easy to lose in a rebase.
+
+    أليانز was never recognized at any interim stage (the engine guessed «عارفاها», then «اليوم»),
+    which is out-of-vocabulary behaviour -> additional_vocab. Separately, min_delay=1.0 committed
+    turns on mid-sentence pauses and the tail arrived as its own segment.
+    """
+    from bluelab_voice.stt import _ADDITIONAL_VOCAB
+
+    bundle = _bundle()
+    bundle.runtime_config.stt_provider = "speechmatics"
+    engine = build_stt(bundle, Settings(speechmatics_api_key="k", deepgram_api_key=""))
+    config = engine._prepare_config()  # type: ignore[attr-defined]
+    assert config.additional_vocab == _ADDITIONAL_VOCAB
+    assert any(entry["content"] == "أليانز" for entry in _ADDITIONAL_VOCAB)
+    # The raw bilingual code must still survive the override that injects the dictionary.
+    assert config.language == bundle.runtime_config.stt_language
+
+    # Arabic floor must clear Speechmatics' ~0.5-0.6s finalization lag, or tails split off.
+    assert _endpointing_for(_bundle()) == {"min_delay": 1.35, "max_delay": 1.5}
 
 
 def test_static_blocks_are_byte_stable() -> None:
