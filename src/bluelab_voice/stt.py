@@ -163,26 +163,34 @@ def build_stt(bundle: RuntimeBundle, settings: Settings) -> stt.STT:
     in ``EXTERNAL`` turn-detection mode so it only drives transcript finalization, not endpointing.
     """
     rc = bundle.runtime_config
-    use_deepgram = settings.stt_model.startswith("deepgram/") and bool(settings.deepgram_api_key)
+    # The BUNDLE's stt_provider wins over the STT_MODEL env var, mirroring how tts_provider
+    # already works. This is deliberate: STT_MODEL lives in the agent's LiveKit Cloud secrets, and
+    # `lk agent update-secrets` cannot update an existing secret in place — the only way is
+    # `--overwrite`, which WIPES every other secret (Anthropic/xAI/Fish keys, the HMAC secret).
+    # Bundle-driven selection means the sim can switch engines with a Railway variable instead.
+    model = settings.stt_model
+    if rc.stt_provider.strip().lower() == "deepgram" and not model.startswith("deepgram/"):
+        model = "deepgram/nova-3"
+    use_deepgram = model.startswith("deepgram/") and bool(settings.deepgram_api_key)
     use_direct = (
-        settings.stt_model.startswith("speechmatics/")
+        model.startswith("speechmatics/")
         and bool(settings.speechmatics_api_key)
         and _speechmatics is not None
     )
     path = "deepgram_plugin" if use_deepgram else ("direct_plugin" if use_direct else "inference")
     _log.info(
         "stt_build",
-        model=settings.stt_model,
+        model=model,
         provider=rc.stt_provider,
         language=rc.stt_language,
         operating_point=rc.stt_operating_point,
         path=path,
     )
     if use_deepgram:
-        return _build_direct_deepgram(bundle, settings)
+        return _build_direct_deepgram(bundle, settings, model)
     if use_direct:
         return _build_direct_speechmatics(bundle, settings)
-    return inference.STT(model=settings.stt_model, language=rc.stt_language)
+    return inference.STT(model=model, language=rc.stt_language)
 
 
 # Proper nouns the engine has no reason to know, which carry the most meaning in a sales call —
@@ -216,7 +224,9 @@ def _deepgram_language(bundle: RuntimeBundle) -> str:
     return "ar" if bundle.is_arabic_or_mixed else "en-US"
 
 
-def _build_direct_deepgram(bundle: RuntimeBundle, settings: Settings) -> stt.STT:
+def _build_direct_deepgram(
+    bundle: RuntimeBundle, settings: Settings, stt_model: str
+) -> stt.STT:
     """Direct Deepgram nova-3. Measurably more accurate on Egyptian Arabic than Speechmatics.
 
     Trade-off, measured on the same 12.6s clip: nova-3's finals arrive ~1-3s LATER than
@@ -226,7 +236,7 @@ def _build_direct_deepgram(bundle: RuntimeBundle, settings: Settings) -> stt.STT
     """
     from livekit.plugins import deepgram
 
-    model = settings.stt_model.split("/", 1)[1] if "/" in settings.stt_model else "nova-3"
+    model = stt_model.split("/", 1)[1] if "/" in stt_model else "nova-3"
     language = _deepgram_language(bundle)
     _log.info("deepgram_stt", model=model, language=language, keyterms=len(_DEEPGRAM_KEYTERMS))
     return deepgram.STT(
