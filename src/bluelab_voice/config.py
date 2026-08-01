@@ -27,10 +27,11 @@ class Settings(BaseSettings):
     # via the DIRECT xAI plugin (XAI_API_KEY) — Inference's xAI relay hit intermittent DNS
     # failures, and the direct path also unlocks the expressive speech tags. STT id verified
     # against the SDK's SpeechmaticsModels literal (`speechmatics/enhanced` | `speechmatics/standard`).
-    # nova-3 is the default after a head-to-head on a real Egyptian recording: Speechmatics ar_en
-    # silently dropped ~a third of the words and invented mid-phrase full stops; nova-3 with
-    # language="ar" kept them. Set to speechmatics/enhanced to switch back.
-    stt_model: str = "deepgram/nova-3"
+    # Speechmatics is the default. A nova-3 comparison looked better on one clip, but the words
+    # Speechmatics "lost" turned out to appear in its INTERIM results and vanish only at a segment
+    # boundary — a finalization/tuning problem, not a recognition one — so the engine is staying
+    # put while that tuning is worked on. Set to deepgram/nova-3 to switch.
+    stt_model: str = "speechmatics/enhanced"
     tts_model: str = "xai/tts-1"
     xai_api_key: str = ""
     # Direct Speechmatics plugin key. When set AND stt_model is speechmatics/*, the worker uses the

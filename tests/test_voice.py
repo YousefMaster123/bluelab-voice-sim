@@ -95,8 +95,33 @@ def test_fish_provider_builds_fish_tts_and_requires_a_voice_id() -> None:
         build_tts(bundle, Settings(fish_api_key="k"))
 
 
-def test_deepgram_is_the_default_stt_and_never_gets_multi_for_arabic() -> None:
-    """nova-3 via the direct plugin, and `multi` must never reach it on an Arabic attempt.
+def test_bundle_provider_decides_the_stt_engine_in_both_directions() -> None:
+    """The bundle's stt_provider wins over STT_MODEL — symmetrically.
+
+    The asymmetric version of this shipped briefly: only `deepgram` was forced, so a bundle asking
+    for speechmatics still got Deepgram whenever the STT_MODEL env happened to name a deepgram
+    model. That made a rollback look like it had done nothing.
+    """
+    from livekit.plugins import deepgram
+
+    from bluelab_voice.stt import _RawLanguageSpeechmaticsSTT
+
+    keys = {"deepgram_api_key": "k", "speechmatics_api_key": "sm"}
+    for env_model in ("speechmatics/enhanced", "deepgram/nova-3"):
+        settings = Settings(stt_model=env_model, **keys)
+
+        wants_deepgram = _bundle()
+        wants_deepgram.runtime_config.stt_provider = "deepgram"
+        assert isinstance(build_stt(wants_deepgram, settings), deepgram.STT), env_model
+
+        wants_speechmatics = _bundle()
+        wants_speechmatics.runtime_config.stt_provider = "speechmatics"
+        engine = build_stt(wants_speechmatics, settings)
+        assert isinstance(engine, _RawLanguageSpeechmaticsSTT), env_model
+
+
+def test_deepgram_never_gets_multi_for_arabic() -> None:
+    """`multi` must never reach nova-3 on an Arabic attempt.
 
     Measured on a real Egyptian recording: nova-3 with language="multi" mis-detected Spanish and
     Norwegian and returned nonsense, while language="ar" transcribed correctly. That makes the
@@ -106,14 +131,13 @@ def test_deepgram_is_the_default_stt_and_never_gets_multi_for_arabic() -> None:
 
     from bluelab_voice.stt import _deepgram_language
 
-    assert Settings().stt_model == "deepgram/nova-3"
-
     bundle = _bundle()
     for stt_language in ("ar", "ar_en", "multi", "AR-EN"):
         bundle.runtime_config.stt_language = stt_language
         assert _deepgram_language(bundle) == "ar", stt_language
 
     bundle.runtime_config.stt_language = "ar_en"
+    bundle.runtime_config.stt_provider = "deepgram"
     engine = build_stt(bundle, Settings(stt_model="deepgram/nova-3", deepgram_api_key="k"))
     assert isinstance(engine, deepgram.STT)
 

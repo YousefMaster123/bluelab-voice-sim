@@ -168,9 +168,17 @@ def build_stt(bundle: RuntimeBundle, settings: Settings) -> stt.STT:
     # `lk agent update-secrets` cannot update an existing secret in place — the only way is
     # `--overwrite`, which WIPES every other secret (Anthropic/xAI/Fish keys, the HMAC secret).
     # Bundle-driven selection means the sim can switch engines with a Railway variable instead.
+    # Symmetric on purpose: whichever provider the bundle names wins, in BOTH directions. An
+    # earlier version only forced deepgram, so a bundle asking for speechmatics still got Deepgram
+    # whenever the STT_MODEL secret happened to say deepgram/* — the env silently overrode the
+    # bundle in one direction only, which is exactly the kind of asymmetry that makes a rollback
+    # look like it did nothing.
+    provider = rc.stt_provider.strip().lower()
     model = settings.stt_model
-    if rc.stt_provider.strip().lower() == "deepgram" and not model.startswith("deepgram/"):
+    if provider == "deepgram" and not model.startswith("deepgram/"):
         model = "deepgram/nova-3"
+    elif provider == "speechmatics" and not model.startswith("speechmatics/"):
+        model = "speechmatics/enhanced"
     use_deepgram = model.startswith("deepgram/") and bool(settings.deepgram_api_key)
     use_direct = (
         model.startswith("speechmatics/")

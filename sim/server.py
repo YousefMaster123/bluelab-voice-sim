@@ -141,10 +141,9 @@ def build_bundle(attempt_id: str, language: str | None = None) -> RuntimeBundle:
     # code verbatim; LiveKit Inference would normalize it to ar-EN = Arabic-only. `en`/`fr` for the
     # non-Arabic markets.
     runtime_config = RuntimeConfig(
-        # deepgram (nova-3) is the default: it beat Speechmatics ar_en on a real Egyptian clip,
-        # which dropped ~a third of the words. Set SIM_STT_PROVIDER=speechmatics to switch back.
-        # The worker maps ar_en -> "ar" for Deepgram, so stt_language stays as the market defines.
-        stt_provider=_env("SIM_STT_PROVIDER", "deepgram"),
+        # speechmatics (ar_en bilingual) is the default. SIM_STT_PROVIDER=deepgram switches to
+        # nova-3, which the worker maps ar_en -> "ar" for, since Deepgram has no bilingual pack.
+        stt_provider=_env("SIM_STT_PROVIDER", "speechmatics"),
         stt_language=market.stt_language,
         stt_operating_point="enhanced",
         llm_model=_env("SIM_LLM_MODEL", "claude-sonnet-4-5"),
