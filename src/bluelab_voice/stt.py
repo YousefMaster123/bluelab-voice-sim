@@ -163,22 +163,87 @@ def build_stt(bundle: RuntimeBundle, settings: Settings) -> stt.STT:
     in ``EXTERNAL`` turn-detection mode so it only drives transcript finalization, not endpointing.
     """
     rc = bundle.runtime_config
+    use_deepgram = settings.stt_model.startswith("deepgram/") and bool(settings.deepgram_api_key)
     use_direct = (
         settings.stt_model.startswith("speechmatics/")
         and bool(settings.speechmatics_api_key)
         and _speechmatics is not None
     )
+    path = "deepgram_plugin" if use_deepgram else ("direct_plugin" if use_direct else "inference")
     _log.info(
         "stt_build",
         model=settings.stt_model,
         provider=rc.stt_provider,
         language=rc.stt_language,
         operating_point=rc.stt_operating_point,
-        path="direct_plugin" if use_direct else "inference",
+        path=path,
     )
+    if use_deepgram:
+        return _build_direct_deepgram(bundle, settings)
     if use_direct:
         return _build_direct_speechmatics(bundle, settings)
     return inference.STT(model=settings.stt_model, language=rc.stt_language)
+
+
+# Proper nouns the engine has no reason to know, which carry the most meaning in a sales call —
+# a mangled company name derails the LLM's reply far more than a mangled filler word.
+#
+# nova-3 uses Keyterm Prompting (plain strings), NOT the older weighted `keywords` — the plugin
+# rejects `keywords` on nova-3 outright. Deepgram documents keyterm as English-only today, so
+# treat this as best-effort: it is passed, and if the API ignores it for `ar` we lose nothing.
+_DEEPGRAM_KEYTERMS: list[str] = ["أليانز", "بيكسل بوينت", "مريم", "يوسف"]
+
+# Deepgram language per bundle language. CRITICAL: never "multi" for Arabic — measured on a real
+# Egyptian recording, nova-3 `multi` mis-detected Spanish/Norwegian and returned pure nonsense
+# ("Ay, amla eh", "drørte I møsterke f a I policy"), while the same audio with language="ar"
+# transcribed correctly. `ar` also beat the Speechmatics ar_en bilingual pack, which silently
+# DROPPED about a third of the words on that clip.
+_DEEPGRAM_LANGUAGES: dict[str, str] = {
+    "ar": "ar",
+    "ar_en": "ar",  # the bilingual code the Speechmatics path uses; Deepgram wants plain `ar`
+    "multi": "ar",  # defensive: never let "multi" reach Deepgram on an Arabic attempt
+    "fr": "fr",
+    "en": "en-US",
+}
+
+
+def _deepgram_language(bundle: RuntimeBundle) -> str:
+    lang = bundle.runtime_config.stt_language.strip().lower().replace("-", "_")
+    if mapped := _DEEPGRAM_LANGUAGES.get(lang):
+        return mapped
+    if mapped := _DEEPGRAM_LANGUAGES.get(lang.split("_", 1)[0]):
+        return mapped
+    return "ar" if bundle.is_arabic_or_mixed else "en-US"
+
+
+def _build_direct_deepgram(bundle: RuntimeBundle, settings: Settings) -> stt.STT:
+    """Direct Deepgram nova-3. Measurably more accurate on Egyptian Arabic than Speechmatics.
+
+    Trade-off, measured on the same 12.6s clip: nova-3's finals arrive ~1-3s LATER than
+    Speechmatics', because it waits for more context — which is exactly why it keeps the words
+    Speechmatics drops. If end-of-turn latency regresses, retune the turn detector's
+    min/max_endpointing_delay, not this.
+    """
+    from livekit.plugins import deepgram
+
+    model = settings.stt_model.split("/", 1)[1] if "/" in settings.stt_model else "nova-3"
+    language = _deepgram_language(bundle)
+    _log.info("deepgram_stt", model=model, language=language, keyterms=len(_DEEPGRAM_KEYTERMS))
+    return deepgram.STT(
+        api_key=settings.deepgram_api_key,
+        model=model,
+        language=language,
+        interim_results=True,  # the turn detector + preemptive generation both consume interims
+        # Deepgram's own endpointing stays minimal: turn-taking belongs to the session's
+        # inference.TurnDetector, exactly as the Speechmatics path runs in EXTERNAL mode.
+        no_delay=True,
+        endpointing_ms=25,
+        punctuate=True,
+        smart_format=False,  # reformats numbers/dates; unwanted noise in a dialect transcript
+        filler_words=True,  # "يعني"/"اه" are turn-taking signal, not junk
+        keyterm=_DEEPGRAM_KEYTERMS,
+        enable_diarization=False,  # single participant (the rep)
+    )
 
 
 def _build_direct_speechmatics(bundle: RuntimeBundle, settings: Settings) -> stt.STT:

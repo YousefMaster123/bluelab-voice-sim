@@ -95,6 +95,29 @@ def test_fish_provider_builds_fish_tts_and_requires_a_voice_id() -> None:
         build_tts(bundle, Settings(fish_api_key="k"))
 
 
+def test_deepgram_is_the_default_stt_and_never_gets_multi_for_arabic() -> None:
+    """nova-3 via the direct plugin, and `multi` must never reach it on an Arabic attempt.
+
+    Measured on a real Egyptian recording: nova-3 with language="multi" mis-detected Spanish and
+    Norwegian and returned nonsense, while language="ar" transcribed correctly. That makes the
+    mapping below a correctness guard, not a preference.
+    """
+    from livekit.plugins import deepgram
+
+    from bluelab_voice.stt import _deepgram_language
+
+    assert Settings().stt_model == "deepgram/nova-3"
+
+    bundle = _bundle()
+    for stt_language in ("ar", "ar_en", "multi", "AR-EN"):
+        bundle.runtime_config.stt_language = stt_language
+        assert _deepgram_language(bundle) == "ar", stt_language
+
+    bundle.runtime_config.stt_language = "ar_en"
+    engine = build_stt(bundle, Settings(stt_model="deepgram/nova-3", deepgram_api_key="k"))
+    assert isinstance(engine, deepgram.STT)
+
+
 def test_static_blocks_are_byte_stable() -> None:
     for block in STATIC_PROMPT_BLOCKS:
         for token in ("{", "}", "%s", "format("):
@@ -117,10 +140,12 @@ def test_settings_have_no_supabase_fields() -> None:
         assert forbidden not in fields
 
 
-def test_stt_via_inference_and_tts_via_direct_xai() -> None:
-    # STT runs through LiveKit Inference; TTS uses the DIRECT xAI plugin (needs XAI_API_KEY) — the
-    # network call is deferred to stream open, so a dummy key is enough to construct.
-    settings = Settings(xai_api_key="test-xai-key")
+def test_stt_falls_back_to_inference_without_a_provider_key() -> None:
+    # With NO provider key, STT falls back to LiveKit Inference; TTS uses the DIRECT xAI plugin
+    # (needs XAI_API_KEY) — the network call is deferred to stream open, so a dummy key is enough.
+    # The empty keys are explicit on purpose: Settings() reads .env, and a developer machine that
+    # has real Speechmatics/Deepgram keys would otherwise take a direct path and fail this here.
+    settings = Settings(xai_api_key="test-xai-key", speechmatics_api_key="", deepgram_api_key="")
     assert isinstance(build_stt(_bundle(), settings), inference.STT)
     assert isinstance(build_tts(_bundle(), settings), xai.TTS)
 
@@ -133,6 +158,9 @@ def test_settings_carry_the_direct_provider_keys() -> None:
 
 
 def test_stt_tts_models_are_config_driven() -> None:
-    swapped = Settings(stt_model="deepgram/nova-3", xai_api_key="k")
+    swapped = Settings(
+        stt_model="deepgram/nova-3", xai_api_key="k", speechmatics_api_key="", deepgram_api_key=""
+    )
     assert swapped.stt_model == "deepgram/nova-3"
+    # No Deepgram key -> Inference serves the same model id (the key is what selects the plugin).
     assert isinstance(build_stt(_bundle(), swapped), inference.STT)

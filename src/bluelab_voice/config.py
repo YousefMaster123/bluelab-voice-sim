@@ -27,13 +27,19 @@ class Settings(BaseSettings):
     # via the DIRECT xAI plugin (XAI_API_KEY) — Inference's xAI relay hit intermittent DNS
     # failures, and the direct path also unlocks the expressive speech tags. STT id verified
     # against the SDK's SpeechmaticsModels literal (`speechmatics/enhanced` | `speechmatics/standard`).
-    stt_model: str = "speechmatics/enhanced"
+    # nova-3 is the default after a head-to-head on a real Egyptian recording: Speechmatics ar_en
+    # silently dropped ~a third of the words and invented mid-phrase full stops; nova-3 with
+    # language="ar" kept them. Set to speechmatics/enhanced to switch back.
+    stt_model: str = "deepgram/nova-3"
     tts_model: str = "xai/tts-1"
     xai_api_key: str = ""
     # Direct Speechmatics plugin key. When set AND stt_model is speechmatics/*, the worker uses the
     # DIRECT plugin instead of LiveKit Inference — the only path that can send the raw bilingual
     # `ar_en` code (Inference normalizes ar_en → ar-EN = Arabic-only). Empty → Inference path.
     speechmatics_api_key: str = ""
+    # Direct Deepgram plugin key. When set AND stt_model is deepgram/*, the worker uses the DIRECT
+    # plugin (which unlocks `keywords` boosting for proper nouns) instead of LiveKit Inference.
+    deepgram_api_key: str = ""
     # Direct Fish Audio plugin key. Required when a bundle sets tts_provider="fishaudio" — Fish's
     # community/custom voices are NOT reachable through LiveKit Inference, only the direct plugin.
     fish_api_key: str = ""
