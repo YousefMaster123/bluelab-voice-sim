@@ -114,6 +114,13 @@ if _VoiceAgentClient is not None:
 # Only add nouns that actually appear in calls and actually get missed.
 _VOCAB_TERMS: list[tuple[str, list[str]]] = [
     ("أليانز", ["اليانز", "أليانس", "اليانس", "الايانز"]),
+    # Code-switched English. Measured on sim-891c19bd838d: «interested» was said twice, mid-phrase
+    # between Arabic function words («...يعني interested في تأمين صحي», «حضرتك interested ولا»),
+    # and produced NOTHING at any interim stage — not a mis-transcription, a silent drop. Note the
+    # same call kept «I'm» verbatim and transliterated «Cairo» to «كايرو», so the bilingual pack
+    # handles English inconsistently per word rather than not at all.
+    # The sounds_like are Arabic-script because that is the script the engine is decoding into.
+    ("interested", ["انترستد", "إنترستد", "انتريستد", "انترست"]),
 ]
 
 _ADDITIONAL_VOCAB = (
