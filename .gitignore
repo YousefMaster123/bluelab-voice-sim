@@ -31,3 +31,8 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# TTS audition output — scripts/tts_probe.py writes .wav here. Renders are disposable and
+# heavy; keep them out of the repo (they were tracked once, which is why this exists).
+tts_probe_out/
+probe_*/
