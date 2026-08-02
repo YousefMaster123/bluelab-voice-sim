@@ -38,13 +38,12 @@ _log = get_logger("bluelab.voice.stt")
 # The direct Speechmatics plugin is optional (only needed for the bilingual ar_en path). Import it
 # lazily-guarded so the Inference-only path keeps working without the plugin installed.
 try:
-    from livekit.plugins import speechmatics as _speechmatics
-
     # MUST import silero here (module load = main thread). The Speechmatics plugin auto-loads silero
     # inside STT.__init__, which runs on a job WORKER thread, and LiveKit forbids registering plugins
     # off the main thread ("Plugins must be registered on the main thread"). Pre-importing on the
     # main thread makes that later lazy import a cached no-op, avoiding the crash.
     from livekit.plugins import silero as _silero  # noqa: F401
+    from livekit.plugins import speechmatics as _speechmatics
 
     # The non-deprecated way to pin the acoustic model on the underlying speechmatics-rt config.
     # `OperatingPoint` is deprecated there in favor of `Model` (same "enhanced"/"standard" values).

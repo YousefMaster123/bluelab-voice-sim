@@ -207,7 +207,9 @@ async def call_claude(client, model: str, system: str, msgs: list[dict]) -> Resu
     )
 
 
-async def call_gpt(client, model: str, reasoning: str | None, system: str, msgs: list[dict]) -> Result:
+async def call_gpt(
+    client, model: str, reasoning: str | None, system: str, msgs: list[dict]
+) -> Result:
     started = time.monotonic()
     ttft = None
     chunks: list[str] = []
@@ -269,7 +271,9 @@ async def main() -> int:
     for name, family in [(m, "gpt") for m in GPT] + [(m, "inference") for m in INFERENCE_GPT]:
         value, err = await probe_reasoning_off(clients[family], name)
         spec = ModelSpec(name, family, reasoning=value, skip=err)
-        print(f"  {name:22} reasoning_effort={value or '(n/a)':8} {('SKIP: ' + err) if err else 'ok'}")
+        print(
+            f"  {name:22} reasoning_effort={value or '(n/a)':8} {('SKIP: ' + err) if err else 'ok'}"
+        )
         specs.append(spec)
     specs = [s for s in specs if not s.skip]
     print()
