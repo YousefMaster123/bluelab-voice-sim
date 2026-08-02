@@ -88,6 +88,32 @@ def _env(name: str, default: str = "") -> str:
     return (os.environ.get(name) or default).strip()
 
 
+def _llm_config() -> dict[str, str]:
+    """Resolve {llm_provider, llm_model} from a single SIM_LLM_MODEL knob.
+
+    The provider is inferred from the model id, so a stale value for one provider can never
+    be sent to the other's endpoint. SIM_LLM_PROVIDER is still honoured if set explicitly,
+    but only as an override for ids this can't classify.
+    """
+    model = _env("SIM_LLM_MODEL", "gpt-5.3-chat-latest")
+    lowered = model.lower()
+    if lowered.startswith("claude"):
+        inferred = "anthropic"
+    elif lowered.startswith(("gpt", "o1", "o3", "o4", "chatgpt")):
+        inferred = "openai"
+    else:
+        inferred = ""
+    provider = _env("SIM_LLM_PROVIDER", inferred or "openai")
+    if inferred and provider != inferred:
+        print(
+            f"[sim] SIM_LLM_PROVIDER={provider} disagrees with model {model}; "
+            f"using {inferred} (the model id is the more specific signal)",
+            flush=True,
+        )
+        provider = inferred
+    return {"llm_provider": provider, "llm_model": model}
+
+
 # ── access guard ────────────────────────────────────────────────────────────────────────────────
 # Optional shared key for the BROWSER-facing routes (`/`, `/sim/*`). Unset (the local default) =
 # wide open. Set it whenever this is deployed to a public URL: `/sim/start` mints LiveKit tokens and
@@ -146,11 +172,17 @@ def build_bundle(attempt_id: str, language: str | None = None) -> RuntimeBundle:
         stt_provider=_env("SIM_STT_PROVIDER", "speechmatics"),
         stt_language=market.stt_language,
         stt_operating_point="enhanced",
-        # OpenAI gpt-5.3-chat-latest is the default after the 7-model bake-off — best
-        # Egyptian of any model tested, 0.81s vs 1.32s TTFT, and ~2/3 the output tokens
-        # (see model_comparisons/assessment.md). SIM_LLM_PROVIDER=anthropic switches back.
-        llm_provider=_env("SIM_LLM_PROVIDER", "openai"),
-        llm_model=_env("SIM_LLM_MODEL", "gpt-5.3-chat-latest"),
+        # ONE knob, not two. gpt-5.3-chat-latest is the default after the 7-model bake-off
+        # (best Egyptian of any model tested, 0.81s vs 1.32s TTFT, ~2/3 the output tokens —
+        # see model_comparisons/assessment.md), and the provider is DERIVED from the model id
+        # rather than configured separately.
+        #
+        # Why derived: two independent env knobs can disagree, and when they do the failure is
+        # a 404 mid-call with the session dead before the greeting. That is exactly what
+        # happened when the code default moved to openai while a stale SIM_LLM_MODEL=
+        # claude-sonnet-4-5 was still set on the host — the OpenAI endpoint was asked for a
+        # Claude model. Deriving makes the mismatch unrepresentable.
+        **_llm_config(),
     )
     # TTS A/B switch: set SIM_TTS_VOICE_ID to a Fish reference id to run the whole sim on Fish
     # Audio instead of xAI. Env-driven on purpose — flipping providers for a listening test must
