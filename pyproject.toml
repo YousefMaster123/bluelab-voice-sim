@@ -15,7 +15,11 @@ dependencies = [
   # [deepgram] = the DIRECT Deepgram plugin, now the default STT: nova-3 with language="ar" beat
   # the Speechmatics ar_en pack on a real Egyptian clip (Speechmatics dropped ~a third of the
   # words), and only the direct plugin exposes `keywords` boosting for brand/persona names.
-  "livekit-agents[turn-detector,anthropic,xai,speechmatics,silero,fishaudio,deepgram]~=1.5",
+  # [openai] = the DIRECT OpenAI plugin, now the default LLM. gpt-5.3-chat-latest won a
+  # 7-model replay of a real call on Egyptian dialect quality AND latency; the -chat-latest
+  # line is non-reasoning, so no reasoning budget can silently re-enable and blow the
+  # latency budget. [anthropic] stays: llm_provider=anthropic switches back.
+  "livekit-agents[turn-detector,anthropic,openai,xai,speechmatics,silero,fishaudio,deepgram]~=1.5",
   # Direct Anthropic SDK (the plugin wraps it; also used for cache-control message blocks).
   "anthropic>=0.40",
   # Outbound calls to the api (bundle fetch + HMAC callbacks) — no Supabase client (REPO-4).

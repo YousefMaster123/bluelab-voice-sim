@@ -12,7 +12,12 @@ import pytest
 from livekit.agents import inference
 from livekit.plugins import xai
 
-from bluelab_runtime_bundle import PersonaSections, RuntimeBundle, assert_runtime_safe
+from bluelab_runtime_bundle import (
+    PersonaSections,
+    RuntimeBundle,
+    RuntimeConfig,
+    assert_runtime_safe,
+)
 from bluelab_voice.agent import (
     GUARDRAILS_VERSION,
     STATIC_PROMPT_BLOCKS,
@@ -174,6 +179,40 @@ def test_speechmatics_carries_the_custom_dictionary_and_arabic_endpointing() -> 
 
     # Arabic floor must clear Speechmatics' ~0.5-0.6s finalization lag, or tails split off.
     assert _endpointing_for(_bundle()) == {"min_delay": 1.35, "max_delay": 1.5}
+
+
+def test_openai_is_the_default_llm_and_carries_prompt_caching() -> None:
+    """gpt-5.3-chat-latest via the direct plugin, with OpenAI's caching levers set.
+
+    OpenAI has no cache_control breakpoint — prefixes over ~1024 tokens cache automatically.
+    What we control is hit rate, so the two things worth pinning are that the cache key is
+    stable ACROSS calls (keying it on the attempt would give every call a cold cache) and
+    that retention is extended (the default in-memory cache expires in minutes; sim traffic
+    is sporadic).
+    """
+    from livekit.plugins import anthropic as lk_anthropic
+    from livekit.plugins import openai as lk_openai
+
+    from bluelab_voice.llm import build_llm
+
+    # The schema default stays "anthropic" — it is the shared contract with apps/api, and
+    # changing it there would silently repoint the real backend too. The SIM selects openai
+    # (sim/server.py, SIM_LLM_PROVIDER), so that is what this pins.
+    bundle = _bundle()
+    bundle.runtime_config.llm_provider = "openai"
+    bundle.runtime_config.llm_model = "gpt-5.3-chat-latest"
+    engine = build_llm(bundle, Settings(openai_api_key="k"))
+    assert isinstance(engine, lk_openai.LLM)
+    opts = engine._opts  # type: ignore[attr-defined]
+    assert opts.prompt_cache_retention == "24h"
+    # Stable across calls, and versioned so a guardrails bump doesn't reuse a stale prefix.
+    assert opts.prompt_cache_key == f"bluelab-{GUARDRAILS_VERSION}-{bundle.language}"
+    assert bundle.attempt_id not in opts.prompt_cache_key
+
+    # Anthropic stays reachable — reverting a provider has been needed twice already.
+    bundle.runtime_config.llm_provider = "anthropic"
+    bundle.runtime_config.llm_model = "claude-haiku-4-5"
+    assert isinstance(build_llm(bundle, Settings(anthropic_api_key="k")), lk_anthropic.LLM)
 
 
 def test_static_blocks_are_byte_stable() -> None:

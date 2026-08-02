@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # DIRECT plugin instead of LiveKit Inference — the only path that can send the raw bilingual
     # `ar_en` code (Inference normalizes ar_en → ar-EN = Arabic-only). Empty → Inference path.
     speechmatics_api_key: str = ""
+    # Direct OpenAI plugin key. Required when a bundle sets llm_provider="openai" — the
+    # default LLM path since the model bake-off (model_comparisons/assessment.md).
+    openai_api_key: str = ""
     # Direct Deepgram plugin key. When set AND stt_model is deepgram/*, the worker uses the DIRECT
     # plugin (which unlocks `keywords` boosting for proper nouns) instead of LiveKit Inference.
     deepgram_api_key: str = ""

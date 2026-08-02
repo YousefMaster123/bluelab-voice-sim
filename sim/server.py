@@ -146,7 +146,11 @@ def build_bundle(attempt_id: str, language: str | None = None) -> RuntimeBundle:
         stt_provider=_env("SIM_STT_PROVIDER", "speechmatics"),
         stt_language=market.stt_language,
         stt_operating_point="enhanced",
-        llm_model=_env("SIM_LLM_MODEL", "claude-sonnet-4-5"),
+        # OpenAI gpt-5.3-chat-latest is the default after the 7-model bake-off — best
+        # Egyptian of any model tested, 0.81s vs 1.32s TTFT, and ~2/3 the output tokens
+        # (see model_comparisons/assessment.md). SIM_LLM_PROVIDER=anthropic switches back.
+        llm_provider=_env("SIM_LLM_PROVIDER", "openai"),
+        llm_model=_env("SIM_LLM_MODEL", "gpt-5.3-chat-latest"),
     )
     # TTS A/B switch: set SIM_TTS_VOICE_ID to a Fish reference id to run the whole sim on Fish
     # Audio instead of xAI. Env-driven on purpose — flipping providers for a listening test must
