@@ -120,6 +120,14 @@ _VOCAB_TERMS: list[tuple[str, list[str]]] = [
     # handles English inconsistently per word rather than not at all.
     # The sounds_like are Arabic-script because that is the script the engine is decoding into.
     ("interested", ["انترستد", "إنترستد", "انتريستد", "انترست"]),
+    # Same silent-drop signature, measured on sim-17574fab105d: across a 6.5-minute call the
+    # ONLY English that survived STT was «interested» (the entry above) and «collaborations»;
+    # «policy» and «partnerships» appear in no final and no interim at all.
+    # «policy» is the harder of the two — the Arabic insurance term is «بوليصة», so the engine
+    # has a strong competing native candidate and resolves toward it before dropping. The
+    # sounds_like below spell the ENGLISH pronunciation, not the Arabic term, on purpose.
+    ("policy", ["بوليسي", "بولسي", "بوليسى", "باليسي"]),
+    ("partnerships", ["بارتنرشيبس", "بارتنرشيب", "بارتنرشبس", "بارتنرشيبز"]),
 ]
 
 _ADDITIONAL_VOCAB = (
