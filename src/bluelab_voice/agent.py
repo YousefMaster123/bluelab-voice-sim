@@ -42,7 +42,7 @@ _log = get_logger("bluelab.voice.agent")
 # Version key for the guardrails block. Recorded on the snapshot as `voice-guardrails@vN` (07 §3);
 # if the bundle carries a different version, that is a registry concern owned by the api — the
 # worker logs a mismatch but runs what it was given (what the author approved is what runs, RE-15).
-GUARDRAILS_VERSION = "voice-guardrails@v23"
+GUARDRAILS_VERSION = "voice-guardrails@v24"
 
 # The static prompt blocks — each byte-stable (AIR-5): do NOT interpolate anything into them.
 # Design (v19): domain-neutral, call-type-agnostic, one concern per block. The prompt is assembled
@@ -416,16 +416,38 @@ def _dialect_block(language: str) -> str | None:
 
 # Expressive-TTS tags (xAI Grok TTS understands these) — used by the reference agent for natural,
 # laughing/sighing delivery (07 §1).
+# v24: rewritten for Fish Audio, which replaced xAI as the TTS. The previous block taught xAI's
+# syntax, of which exactly ONE tag ([pause]) is valid on Fish — the rest are read out loud to the
+# caller as literal speech. Measured on the production voice, same sentence each time:
+#     clean                    1.7s
+#     [sighing]  (Fish, valid) 2.2s  -> renders an actual sigh
+#     [Sighing]  (capitalised) 3.2s  -> the WORD is spoken; markers are case-sensitive
+#     [sigh]     (xAI, taught) 2.5s  -> the WORD is spoken
+#     <soft>…</soft>           1.7s  -> angle brackets are silently stripped, never rendered
+# Hence: lowercase is mandatory, and the wrapping concept is gone entirely (Fish markers colour
+# what follows and have no closing form).
+#
+# Fish supports eight further effects (moaning, sobbing, crying loudly, panting, groaning, crowd
+# laughing, background laughter, audience laughing) plus whispering/breathy. They are deliberately
+# NOT listed: there is no reading of a B2B insurance call where the prospect should moan or an
+# audience should laugh, and listing them only invites misuse.
 _VOICE_EXPRESSIVENESS = """\
 <voice_expressiveness>
-Your speech is rendered by an expressive TTS engine that understands the tags below. Use them RARELY — \
-MOST of your replies should have NONE at all. Reach for one only when it genuinely adds something real \
-(an actual laugh, a real hesitation, a sigh you'd truly make). Never sprinkle them, never open a line \
-with [pause] out of habit — at most one in a reply, and usually zero. Never announce or explain a tag; \
-just use it.
-- Inline: [pause], [long-pause], [breath], [sigh], [laugh], [chuckle], [tongue-click].
-- Wrapping (a delivery style): <soft>…</soft>, <emphasis>…</emphasis>, <slow>…</slow>, <loud>…</loud>.
-- Tags must appear exactly as shown — no spaces inside the brackets/angle brackets.
+Your speech is rendered by a TTS engine that understands the markers below, and ONLY those. A marker \
+colours the words that follow it. There is no closing marker and nothing wraps.
+Use them RARELY — MOST of your replies should have NONE at all. Reach for one only when it adds \
+something real: an actual sigh, a real pause, genuine irritation. Never sprinkle them, never open a \
+line with [pause] out of habit — at most one in a reply, and usually zero. Never announce or explain \
+a marker; just use it.
+The complete list you may use, written exactly like this:
+- Pauses:  [pause]  [long pause]
+- Feeling: [angry]  [sad]  [embarrassed]  [excited]  [emphasis]  [soft]
+- Sounds:  [sighing]  [laughing]  [chuckling]  [clear throat]
+Rules, and they are strict:
+- Lowercase only. [Sighing] is NOT recognised and the engine will say the word "sighing" out loud.
+- Square brackets only, with the spaces inside [long pause] and [clear throat] exactly as written.
+- ANY bracketed word not on this list is read out loud to the caller as literal speech. Never invent \
+one, never put a tool name or an action in brackets.
 </voice_expressiveness>"""
 
 # Every always-present static block, in assembly order — exported for tests (presence +

@@ -15,7 +15,6 @@ from livekit.plugins import xai
 from bluelab_runtime_bundle import (
     PersonaSections,
     RuntimeBundle,
-    RuntimeConfig,
     assert_runtime_safe,
 )
 from bluelab_voice.agent import (
